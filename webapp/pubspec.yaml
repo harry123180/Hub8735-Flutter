@@ -1,0 +1,35 @@
+name: webapp
+description: "A new Flutter project."
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"  # ✅ 這樣可以適配所有 3.x 版本的 Dart
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI / 圖表
+  cupertino_icons: ^1.0.8
+  fl_chart: ^0.70.2  # ✅ 折線圖、圓餅圖
+
+  # 藍牙
+  flutter_blue_plus: ^1.35.3  # ✅ 這裡保留，並刪除 dev_dependencies 裡的
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/fonts/
+    - assets/jsons/
+    - assets/videos/
