@@ -161,24 +161,186 @@ The `FlashMemory.cpp` implementation:
 
 ---
 
-## Hypotheses (Ranked by Likelihood)
+## Research Update — 2026-04-28 (Update 2)
 
-### Hypothesis A — FCS SAVE_TO_FLASH Data Overlaps FlashMemory Area ★★★★★
-The FCS mechanism writes camera AE/AWB parameters to a flash sector at or near 0xFD0000 (FlashMemory base). When `FlashMemory.write()` erases all 48 sectors in that range, it destroys the FCS parameter data. On next cold boot, the boot ROM KM verification fails because the parameter checksum is invalid (all-FFs or zeros).
+### Finding 9 — Complete Partition Table Layout Confirmed
+**Source:** `ameba-arduino-pro2` partition table JSON (SHA d3a860b4)  
+https://github.com/Ameba-AIoT/ameba-arduino-pro2/blob/d3a860b4cfd9d207119ef2ca99c660bae5c74507/Arduino_package/ameba_pro2_tools_windows/misc/sys_img/amebapro2_partitiontable.json  
+**Priority:** HIGH
 
-**Evidence:**
-- Sector erase = complete fail (FCS params destroyed)
-- Write without erase = mild fail (partial bit disturbance in FCS param cells)
-- No writes = OK (FCS params intact)
-- v4.0.8 introduced both features simultaneously without conflict testing
+Full NOR flash layout for RTL8735B / AMB82-Mini / BW21-CBV:
 
-**To confirm:** Find the exact flash address used by `SAVE_TO_FLASH` in `video_user_boot.c` or the partition table.
+| Partition | Start    | Length   | Type          | Notes |
+|-----------|----------|----------|---------------|-------|
+| sysdata   | 0x007000 | 0x1000   | PT_SYSDATA    | System metadata |
+| **fcsdata** | **0x008000** | **0x1000** | **PT_FCSDATA** | **Boot ROM FCS header** |
+| boot_p    | 0x009000 | 0x27000  | PT_BL_PRI     | Primary bootloader |
+| boot_s    | 0x030000 | 0x27000  | PT_BL_SEC     | Secondary bootloader |
+| fw1       | 0x080000 | 0x380000 | PT_FW1        | Main firmware |
+| iq        | 0x400000 | 0x0C0000 | PT_ISP_IQ     | ISP IQ binary (768 KB) |
+| fw2       | 0x4C0000 | 0x380000 | PT_FW2        | OTA firmware slot |
+| nn        | 0x840000 | 0x5C0000 | PT_NN_MDL     | Neural network models |
+| mp        | 0xFC0000 | 0x1000   | PT_MP         | Manufacturing (invalid=false) |
 
-### Hypothesis B — FCS Verification Hash Stored Near FlashMemory Area ★★★★
-The boot ROM computes/verifies a hash of the FCS parameter data and stores this hash in a dedicated sector near the FlashMemory area. Erasing the FlashMemory area erases this hash, causing KM verification failure even if the FCS binary itself (at 0x7e080) is intact.
+**Key gaps:** No partition is defined from `0xFC1000` to `0xFFFFFF`. The Arduino `FlashMemory` API at `0xFD0000–0xFFFFFF` occupies entirely unallocated space in the partition table.
 
-### Hypothesis C — NOR Flash Write-Disturb on FCS Cells ★★
-Multiple page programs at 0xFD0000 cause read-disturb on flash cells in a nearby sector containing FCS data. This could explain why 70× writes cause a mild failure. Unlikely to explain the erase-only scenario.
+---
+
+### Finding 10 — FCS Runtime Save Address: 0xF0D000 (RTOS SDK)
+**Source:** `ameba-rtos-pro2` — `platform_opts.h` (commit 4dcbdb9e)  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/4dcbdb9e67c01588079d3d47114a2fcd09ae5cd1/project/realtek_amebapro2_v0_example/inc/platform_opts.h  
+**Priority:** HIGH
+
+```c
+#define USER_DATA_BASE      0xF00000
+#define NOR_FLASH_FCS      (USER_DATA_BASE + 0x0D000)   // = 0xF0D000
+#define NAND_FLASH_FCS      0x7080000
+#define USER_DATA_END       (USER_DATA_BASE + 0x64000)   // = 0xF64000
+```
+
+Full RTOS SDK system-reserved block (`0xF00000–0xF64000`):
+
+| Symbol | Address | Purpose |
+|--------|---------|---------|
+| FAST_RECONNECT_DATA | 0xF00000 | WiFi fast-reconnect |
+| BT_FTL_BKUP_ADDR | 0xF01000 | BT stack (12 KB) |
+| SECURE_STORAGE_BASE | 0xF04000 | Secure key store (4 KB) |
+| FACE_FEATURE_DATA | 0xF05000 | Face recognition features |
+| ISP_FW_LOCATION | 0xF0C000 | ISP firmware index |
+| **NOR_FLASH_FCS** | **0xF0D000** | **FCS AE/AWB runtime save** |
+| TUNING_IQ_FW | 0xF10000 | IQ tuning firmware (256 KB) |
+| CALI_IQ_FW | 0xF60000 | IQ calibration firmware (16 KB) |
+| USER_DATA_END | 0xF64000 | — |
+
+---
+
+### Finding 11 — FCS Data Structure: "FCSD" Header + video_boot_stream_t
+**Source:** `ameba-rtos-pro2` — `video_user_boot.c` (commit 4dcbdb9e)  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/4dcbdb9e67c01588079d3d47114a2fcd09ae5cd1/component/video/driver/RTL8735B/video_user_boot.c  
+**Priority:** HIGH
+
+The FCS record stored in flash has this layout:
+```
+[0x00] 4 bytes  — Magic: "FCSD"
+[0x04] 4 bytes  — Checksum
+[0x08] ...      — video_boot_stream_t struct (AE/AWB sensor parameters)
+Total: ~2048 bytes
+```
+Read via `ftl_common_read(flash_addr, fcs_buf, fcs_buf_size)` with a 2048-byte buffer.  
+Write via `ftl_common_write(flash_addr, fcs_buf, fcs_buf_size)`.  
+Boot-device selection: `hal_sys_get_boot_select()` → 0 = NOR, 1 = NAND.
+
+---
+
+### Finding 12 — video_api.c Confirms Two Independent Code Paths to 0xF0D000
+**Source:** `ameba-rtos-pro2` — `video_api.c` (commit 4dcbdb9e)  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/4dcbdb9e67c01588079d3d47114a2fcd09ae5cd1/component/video/driver/RTL8735B/video_api.c  
+**Priority:** HIGH
+
+Both `video_pre_init_load_params()` (boot-time load) and `video_pre_init_save_cur_params()` (runtime save) use:
+```c
+if (sys_get_boot_sel() == 0) {
+    flash_addr = NOR_FLASH_FCS;   // 0xF0D000
+}
+```
+`SAVE_TO_FLASH` is the **default** in the official FCS example code (`EXAMPLE_SAVE_OPTION = EXAMPLE_SAVE_TO_FLASH`).
+
+---
+
+### Finding 13 — CRITICAL: Hypothesis A DISPROVED — No Direct Address Overlap
+**Source:** Synthesis of Findings 9 and 10  
+**Priority:** HIGH
+
+The original leading hypothesis is **wrong**. The two relevant FCS addresses are:
+- **0x008000** — `fcsdata` partition: boot ROM reads FCSD header here
+- **0xF0D000** — `NOR_FLASH_FCS`: runtime `video_pre_init_save_cur_params()` writes here
+
+The Arduino `FlashMemory` API writes to **0xFD0000–0xFFFFFF**.
+
+Address distances:
+- `0xFD0000 − 0xF0D000 = 0xC3000` = **780 KB gap** (FlashMemory vs NOR_FLASH_FCS)
+- `0xFD0000 − 0x008000 = 0xFC8000` = **16.0 MB gap** (FlashMemory vs fcsdata partition)
+
+**No direct erase overlap is possible.** The bug mechanism must be indirect.
+
+---
+
+### Finding 14 — Official Arduino Flash Zone Boundaries
+**Source:** `ameba-arduino-doc` — `amb82-mini_flash_layout.rst` (commit d0b6ca31)  
+https://github.com/Ameba-AIoT/ameba-arduino-doc/blob/d0b6ca31683ce31b72a24f9f227432914b13b944/source/FAQ/amb82-mini_flash_layout.rst  
+**Priority:** MEDIUM
+
+| Build type | User-reserved zone | Notes |
+|---|---|---|
+| Without OTA | 0xFC0000 – 0x1000000 (256 KB) | FCS at 0xF0D000 is OUTSIDE → safe? |
+| With OTA | 0xF00000 – 0x1000000 (1023 KB) | FCS at 0xF0D000 is INSIDE this zone |
+
+In OTA builds, the user-reserved zone begins at `0xF00000`, which **includes** the `NOR_FLASH_FCS` address `0xF0D000`. An OTA-build user making `FlashMemory` calls starting at `0xF00000` would directly overwrite FCS runtime parameters. **However, this does not explain bugs on standard non-OTA builds where FlashMemory starts at 0xFD0000.**
+
+---
+
+### Finding 15 — NOR Flash CPU Address Mapping Confirmed
+**Source:** GitHub Issue #251 boot log  
+**Priority:** MEDIUM
+
+NOR flash physical offset → CPU address: `physical_offset + 0x8000000`
+
+| Resource | Flash offset | CPU addr (from boot log) |
+|---|---|---|
+| fcsdata (boot ROM FCS) | 0x8000 | 0x8008000 |
+| VOE binary | 0x7E080 | 0x807E080 |
+| ISP IQ | 0x461080 | 0x8461080 |
+
+---
+
+### Finding 16 — No Chinese-Language Sources Found
+**Source:** CSDN, 知乎, 21ic, EEWorld, bbs.ai-thinker.com  
+**Priority:** LOW
+
+Exhaustive Chinese-language search returned no posts specifically linking `FlashMemory` writes to camera FCS boot failure on RTL8735B / AmebaPro2 / BW21-CBV. The bug is unreported publicly in Chinese or English forum posts.
+
+---
+
+### New Hypothesis D — Race Condition: SAVE_TO_FLASH Interrupted by Power-Off ★★★★
+**Priority:** HIGH — Now the primary candidate
+
+The indirect mechanism:
+
+1. Camera is running; FCS has already saved AE/AWB params to **0xF0D000** in a previous session. These are valid.
+2. User calls `FlashMemory.write()` — this erases+programs **0xFD0000+**. During this operation, XIP is briefly suspended.
+3. The video subsystem RTOS task, running concurrently, detects that it should update AE/AWB convergence. It calls `video_pre_init_save_cur_params(SAVE_TO_FLASH)`, which:
+   - **Erases** the 4KB sector at `0xF0D000`
+   - Then **programs** new AE/AWB data back
+4. The user sees that `FlashMemory.write()` returned (signaling "done"). They assume it is safe to power off.
+5. The device is powered off **between** the FCS erase and FCS reprogram of `0xF0D000`.
+6. `0xF0D000` is now erased (all 0xFF). On next cold boot, boot ROM reads the FCSD header, finds garbage checksum, raises `KM_status 0x00002081 err 0x0000200a`, prints "It don't do the sensor initial process."
+
+**Explains severity ladder:**
+- 1× write (stable): SAVE_TO_FLASH at 0xF0D000 completes quickly after single flash op; power-off race window is tiny
+- 70× writes (slot full): 70 FlashMemory operations each queue a SAVE_TO_FLASH job; video message queue overflows → deadlock labeled "slot full"
+- Sector erase (complete fail): Longer erase duration at 0xFD0000 maximizes the overlap window; power-off during 0xF0D000 erase-reprogram becomes near-certain
+
+### New Hypothesis E — Video Message Queue Overflow from Repeated Flash Triggers ★★★
+Each `FlashMemory.writeWord()` (or `write()`) triggers an RTOS event that causes the video subsystem to enqueue a `SAVE_TO_FLASH` job. At 70 writes, the video message queue exhausts its fixed slot count → "slot full" deadlock. The jobs that do execute partially corrupt 0xF0D000 (write-abort on power-off). This hypothesis is complementary to D, not exclusive.
+
+---
+
+## Hypotheses (Ranked by Likelihood) — UPDATED
+
+### Hypothesis D — Race: FlashMemory write triggers SAVE_TO_FLASH, power-off hits erase window ★★★★★
+See "New Hypothesis D" above. Now the leading candidate. Explains all three severity levels.
+
+### Hypothesis E — Video queue overflow on repeated FlashMemory writes ★★★★
+Explains "slot full" specifically. Complementary to D.
+
+### Hypothesis A — FCS Data Overlaps FlashMemory Area ★ *(DISPROVED)*
+Addresses are 780 KB apart. Direct overlap is not physically possible on non-OTA builds.
+
+### Hypothesis B — FCS Verification Hash Near FlashMemory Area ★★
+Still possible if the boot ROM hashes a range that happens to extend toward 0xFD0000, but no evidence yet.
+
+### Hypothesis C — NOR Flash Write-Disturb on FCS Cells ★
+Distance between regions (780 KB) makes electrical disturb implausible.
 
 ---
 
@@ -190,15 +352,17 @@ Multiple page programs at 0xFD0000 cause read-disturb on flash cells in a nearby
 
 3. **Change `FLASH_MEMORY_APP_BASE`** — Recompile SDK with a different base address that doesn't conflict with FCS parameters. Requires source SDK access.
 
-4. **Re-trigger FCS parameter save after flash write** — After any FlashMemory operation, call `CMD_VIDEO_PRE_INIT_LOAD` with `SAVE_TO_FLASH` to re-write FCS parameters before next power cycle. Feasibility depends on API availability at user level.
+4. **Re-trigger FCS parameter save after flash write** — After any FlashMemory operation, call `video_pre_init_save_cur_params(SAVE_TO_FLASH)` explicitly and wait for it to complete before allowing power-off. Feasibility depends on API availability at user level.
 
 5. **Use software reset instead of power cycle** — The bug only manifests on cold boot. A software reset (no power interruption) may preserve DRAM retention of FCS state. Not viable for real deployment.
+
+6. **Switch SAVE_OPTION to SAVE_TO_RETENTION** — Change the FCS example `EXAMPLE_SAVE_OPTION` from `SAVE_TO_FLASH` to `SAVE_TO_RETENTION`. This avoids flash entirely for AE/AWB storage, using SRAM retention instead. Retention survives warm resets but not full power cycles — so may not fully solve the problem, but could reduce the race window.
 
 ---
 
 ## Open Questions
 
-1. **What exact flash address does `SAVE_TO_FLASH` use?** — This is the critical unknown. Find in `video_user_boot.c` source or `amebapro2_partitiontable.json`.
+1. **What exact flash address does the pre-compiled Arduino SDK binary use for NOR_FLASH_FCS?** — RTOS SDK says 0xF0D000. Arduino partition table implies 0x8000 for boot ROM read. Resolving this requires disassembly of `libvideo.a` from the Arduino package.
 
 2. **Does disabling FCS mode in Arduino IDE actually prevent the bug?** — Needs experimental verification.
 
@@ -207,6 +371,12 @@ Multiple page programs at 0xFD0000 cause read-disturb on flash cells in a nearby
 4. **Is the bug present in v4.0.7 (before FlashMemory was added)?** — Would confirm v4.0.8 as the introduction point.
 
 5. **Has Realtek been notified?** — No public GitHub issue or forum post directly reporting this specific flash/FCS interaction found.
+
+6. **Does FlashMemory.write() trigger a SAVE_TO_FLASH video event?** — Critical for confirming Hypothesis D. Need to trace the FlashMemory call path into RTOS video subsystem.
+
+7. **What is the video message queue slot count?** — If it is ~70, this would confirm Hypothesis E and explain the "slot full" symptom at 70 writes precisely.
+
+8. **Is SAVE_TO_FLASH called as a background RTOS task?** — If synchronous (blocking), the race window would be different than if asynchronous. Async makes Hypothesis D more likely.
 
 ---
 
@@ -226,3 +396,9 @@ Multiple page programs at 0xFD0000 cause read-disturb on flash cells in a nearby
 - BW21-CBV Ai-Thinker forum: https://bbs.ai-thinker.com/forum.php?mod=viewthread&tid=46140
 - Flash Memory API docs: https://www.amebaiot.com/en/ameba-arduino-flash/
 - Flash Write Word example: https://www.amebaiot.com/en/amebapro2-arduino-flash-writeword/
+- ameba-arduino-pro2 partition table (commit d3a860b): https://github.com/Ameba-AIoT/ameba-arduino-pro2/blob/d3a860b4cfd9d207119ef2ca99c660bae5c74507/Arduino_package/ameba_pro2_tools_windows/misc/sys_img/amebapro2_partitiontable.json
+- ameba-rtos-pro2 platform_opts.h (commit 4dcbdb9): https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/4dcbdb9e67c01588079d3d47114a2fcd09ae5cd1/project/realtek_amebapro2_v0_example/inc/platform_opts.h
+- ameba-rtos-pro2 video_user_boot.c (commit 4dcbdb9): https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/4dcbdb9e67c01588079d3d47114a2fcd09ae5cd1/component/video/driver/RTL8735B/video_user_boot.c
+- ameba-rtos-pro2 video_api.c (commit 4dcbdb9): https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/4dcbdb9e67c01588079d3d47114a2fcd09ae5cd1/component/video/driver/RTL8735B/video_api.c
+- ameba-arduino-doc flash layout rst: https://github.com/Ameba-AIoT/ameba-arduino-doc/blob/d0b6ca31683ce31b72a24f9f227432914b13b944/source/FAQ/amb82-mini_flash_layout.rst
+- FCS example source: https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/4dcbdb9e67c01588079d3d47114a2fcd09ae5cd1/project/realtek_amebapro2_v0_example/src/mmfv2_video_example/mmf2_video_example_joint_test_rtsp_mp4_init_fcs.c
