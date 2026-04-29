@@ -344,6 +344,157 @@ Distance between regions (780 KB) makes electrical disturb implausible.
 
 ---
 
+---
+
+## Research Update — 2026-04-29
+
+### Finding 17 — CRITICAL: FlashMemory.write() Bypasses RT_DEV_LOCK_FLASH Mutex
+**Source:** ameba-rtos-pro2 — `ftl_nor_api.c` + `FlashMemory.cpp` analysis  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/main/component/ftl/ftl_nor_api.c  
+https://github.com/Ameba-AIoT/ameba-arduino-pro2/blob/main/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp  
+**Priority:** CRITICAL — Most likely root cause
+
+The FTL layer (`ftl_nor_api.c`) used by `ftl_common_write()` / `ftl_common_read()` (which the video subsystem calls for every FCS save) wraps every flash hardware command with:
+```c
+device_mutex_lock(RT_DEV_LOCK_FLASH);
+// ... flash erase / page-program operations ...
+device_mutex_unlock(RT_DEV_LOCK_FLASH);
+```
+
+`FlashMemory.write()` in the Arduino SDK calls `flash_erase_sector()` and `flash_stream_write()` **without taking `RT_DEV_LOCK_FLASH` at all.**
+
+**Race condition:** The video module RTOS task runs independently of the Arduino `loop()` task. If they run concurrently:
+- **Video task:** `video_meta_data_process()` → `video_pre_init_save_cur_params(SAVE_TO_FLASH)` → `ftl_common_write(0xF0D000, fcs_buf, 2048)` — acquires `RT_DEV_LOCK_FLASH`, erases sector at `0xF0D000`, begins 2 KB page-program.
+- **Arduino task:** `FlashMemory.write()` → `flash_erase_sector(0xFD0000, ...)` — issues SPI flash commands **without** holding `RT_DEV_LOCK_FLASH`, running concurrently.
+
+A SPI NOR flash controller processes only one command at a time. A second CS-assertion during an active page-program cycle aborts that program cycle per the JEDEC specification. This leaves the FCS sector at `0xF0D000` erased but not reprogrammed (all `0xFF`). On next cold boot the boot ROM reads a blank sector, the KM checksum fails → `FCS KM_status 0x00002081 err 0x0000200a` → `"It don't do the sensor initial process"`.
+
+**Severity ladder explanation:**
+- 1× `writeWord` (4 bytes, no erase): very short flash operation, tiny race window → infrequent collision → "stable" in testing
+- 70× `writeWord` (280 bytes): cumulative flash operation time greatly increases overlap probability with video SAVE_TO_FLASH → partial corruption → `[VOE][WARN]slot full`
+- Sector erase (typ. 30–150 ms): longest possible flash operation → near-certain collision → complete `VOE_OPEN_CMD fail`
+
+**Proposed fix:** Add `device_mutex_lock(RT_DEV_LOCK_FLASH)` / `device_mutex_unlock(RT_DEV_LOCK_FLASH)` around `flash_erase_sector()` and `flash_stream_write()` in `FlashMemory.cpp`. This is a one-line change per call site.
+
+---
+
+### Finding 18 — SAVE_TO_FLASH is Synchronous (~60ms Blocking Call in Calling Task)
+**Source:** ameba-rtos-pro2 — `module_video.c` + `video_api.c` (commit 4dcbdb9e)  
+**Priority:** HIGH — Revises Hypothesis D
+
+`video_pre_init_save_cur_params()` with `save_option = SAVE_TO_FLASH` is a **fully synchronous ~60ms blocking call** in the calling task's context. There is no `xTaskCreate()` or `osThreadNew()` for FCS saving anywhere in the codebase. The ~60ms duration encompasses sector erase + 2048-byte page-program at `0xF0D000`.
+
+Additional precision: the per-frame video callback (e.g., `module_video.c:121`) calls `video_pre_init_save_cur_params()` with `save_option = 0` (`SAVE_TO_STRUCTURE` — in-memory only, no flash I/O). The flash-writing path lives at `module_video.c:411` inside `video_meta_data_process()` and uses `save_option = 1` (`SAVE_TO_FLASH`). `video_meta_data_process()` is called from the video module's RTOS task when metadata is ready on the pipeline output.
+
+**Consequence for Hypothesis D:** The power-cut race window per SAVE_TO_FLASH event is ~60ms, not open-ended. While power-cut during this window can still corrupt FCS, the `RT_DEV_LOCK_FLASH` bypass (Finding 17) is a far more reliable and frequent corruption path that doesn't require an unlucky power cut.
+
+---
+
+### Finding 19 — Hypothesis E Disproved: No ~70-Slot Video Queue
+**Source:** ameba-rtos-pro2 — `video_api.h`, `hal_video.h`, `module_video.c`  
+**Priority:** HIGH
+
+No video queue with ~70 slots exists in the system:
+- `MAX_ENC_BUF = 16` (hal_video.h) — encoder ring buffer hard cap
+- `isp_ch_buf_num[ch] = {2, 2, 2, 2, 2}` — ISP frame buffer: 2 slots per channel
+- VOE output callback queue: 4096-byte pool buffer (byte size, not message count)
+
+The "70× writes" in the bug report is the user's `FlashMemory.writeWord()` call count during testing, not a queue depth. **Hypothesis E (video queue overflow at exactly ~70 writes) is eliminated.** The `[VOE][WARN]slot full` message most likely originates from the VOE's internal stream-slot allocator failing when FCS boot data is partially corrupted and the VOE cannot correctly restore its pre-allocated channel state.
+
+---
+
+### Finding 20 — Secondary OTA-Build Bug: Erase Loop Can Directly Overwrite FCS at 0xF0D000
+**Source:** `FlashMemory.cpp` erase loop analysis  
+**Priority:** HIGH — Independent second bug path (OTA builds only)
+
+In `FlashMemory.write()` the sector-erase loop iterates over `MAX_FLASH_MEMORY_APP_SIZE = 0x30000` (48 sectors, compile-time constant) rather than the caller-supplied `buf_size`. In **OTA builds** where `FlashMemory.begin(0xF00000, ...)` sets the base address to `0xF00000`:
+
+- Erase covers: `0xF00000` → `0xF00000 + 0x30000 = 0xF30000` (48 sectors)
+- Sector 13 of this range: `0xF00000 + 13 × 0x1000 = 0xF0D000` = **NOR_FLASH_FCS**
+
+Every single `FlashMemory.write()` call in an OTA build with the default base directly erases the FCS runtime save sector, making camera boot failure 100% reproducible and not dependent on a concurrency race.
+
+*Standard non-OTA builds use `FlashMemory.begin(0xFD0000, ...)` — erase covers `0xFD0000–0xFFFFFF` — no direct overlap with `0xF0D000`. This OTA-build path is a separate, more severe defect.*
+
+---
+
+### Finding 21 — Commit fb3dc02: MMF Queue "Not Init" Guard — Confirms Prior Unguarded Race
+**Source:** ameba-rtos-pro2, commit fb3dc02  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/fb3dc02  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/3130193 (follow-up)  
+**Priority:** HIGH
+
+A commit to `component/media/mmfv2/module_video.c` (+ `libmmf.a` binary) adds:
+```c
+if (mctx->state != MM_STAT_READY) {
+    printf("module_video queue not init\r\n");
+    return NOK;
+}
+```
+before `CMD_VIDEO_APPLY` handling. A follow-up commit (3130193) adds a carve-out for JPEG snapshot direct-output mode to avoid regressions.
+
+**Significance:** Realtek developers explicitly acknowledged that the video module's command queue was previously reachable in an uninitialized state. Although this guard is not the FCS corruption fix, it confirms that unguarded concurrent access to the video pipeline was a real, acknowledged hazard in pre-fix SDK versions. Consistent with the flash mutex bypass scenario in Finding 17.
+
+---
+
+### Finding 22 — VOE Binary Updated to 1.7.0.0 (commit f575a69)
+**Source:** ameba-rtos-pro2, commit f575a69  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/f575a69  
+**Priority:** MEDIUM
+
+VOE updated from `1.6.9.0` → `1.7.0.0`. Files changed: `hal_isp.h`, `hal_video.h`, `hal_video_common.h`, `hal_video_release_note.txt`, `voe.bin`, `libvideo_ns.a`, `libvideo_ntz.a`. Noted fixes: "dual sensor id mirror/flip issue"; new `hal_video_set_isp_gain()` API; new DRC configuration. No explicit FCS or flash-mutex fix mentioned.
+
+---
+
+### Finding 23 — Forum Thread #3983: "Error after write in memory AMB82" — Potential Independent Report
+**Source:** Realtek Ameba IoT Developers Forum, thread #3983 (HTTP 403 — Google snippet only)  
+https://forum.amebaiot.com/t/error-after-write-in-memory-amb82/3983  
+**Priority:** MEDIUM — Same bug, possibly different reporter; camera involvement unconfirmed
+
+Google-indexed snippet: user experienced errors after MCU restart following flash memory write operations on AMB82. Writes were 32-byte strings to flash offsets `0x1E20`, `0x1E40`, `0x1E60` triggered by incoming BLE packets. Pattern (flash write → restart → error) matches our bug exactly. Forum page blocked (403) so full error output and camera involvement could not be confirmed.
+
+---
+
+### Finding 24 — Bug Is Publicly Unreported (English and Chinese Confirmed)
+**Source:** Exhaustive web search — Google, CSDN, 知乎, 21ic.com, EEWorld, bbs.ai-thinker.com  
+**Priority:** MEDIUM — Confirms novelty; no community fix exists to find
+
+The following error strings return **zero indexed public results** in any language:
+- `"It don't do the sensor initial process"` — 0 results
+- `"FCS KM_status 0x00002081"` — 0 results
+- `"VOE_OPEN_CMD fail"` (in Ameba/RTL8735B context) — 0 results
+- `"[VOE][WARN]slot full"` — 0 results
+
+No Chinese-language source (CSDN, Zhihu, 21ic, EEWorld, bbs.ai-thinker.com) links `FlashMemory` writes to FCS camera failure. No GitHub issue has been filed against `ameba-arduino-pro2` or `ameba-rtos-pro2` for this interaction. The bug remains publicly undocumented as of 2026-04-29.
+
+---
+
+### New Hypothesis F — Missing RT_DEV_LOCK_FLASH in FlashMemory.write() ★★★★★
+**Priority:** CRITICAL — Now the primary root cause candidate, superseding Hypothesis D
+
+Mechanism:
+1. Camera is running; video module RTOS task periodically calls `video_meta_data_process()` → `video_pre_init_save_cur_params(SAVE_TO_FLASH)` → `ftl_common_write(0xF0D000, fcs_buf, 2048)`.
+2. `ftl_common_write` acquires `RT_DEV_LOCK_FLASH`, erases the 4 KB sector at `0xF0D000`, then begins the 2 KB page-program cycle (~60ms total).
+3. During this same window, the Arduino `loop()` task calls `FlashMemory.write()` → `flash_erase_sector(0xFD0000)` → issues SPI WREN+SE commands **without** acquiring `RT_DEV_LOCK_FLASH`.
+4. Two concurrent SPI flash commands abort each other per the SPI NOR specification; specifically the page-program at `0xF0D000` is silently aborted, leaving the sector erased-but-blank.
+5. On next cold boot, boot ROM reads blank `0xF0D000` → KM checksum mismatch → `FCS KM_status 0x00002081 err 0x0000200a` → `"It don't do the sensor initial process"`.
+
+**Fix:** In `FlashMemory.cpp`, wrap all `flash_erase_sector()` and `flash_stream_write()` calls with `device_mutex_lock(RT_DEV_LOCK_FLASH)` / `device_mutex_unlock(RT_DEV_LOCK_FLASH)`.
+
+---
+
+### Updated Hypotheses Ranking — 2026-04-29
+
+| Rank | Hypothesis | Status |
+|---|---|---|
+| ★★★★★ | **F** — `FlashMemory.write()` bypasses `RT_DEV_LOCK_FLASH`; concurrent SPI commands abort FCS page-program | **PRIMARY CANDIDATE** |
+| ★★★ | **D** (revised) — Power-cut during the ~60ms SAVE_TO_FLASH window corrupts FCS; FlashMemory ops extend session time | Secondary / complementary |
+| ★★ | **B** — Boot ROM hashes a range that extends toward user flash | Possible but unconfirmed |
+| ★ (disproved) | **E** — Video queue overflow at ~70 writes | ELIMINATED (no ~70-slot queue) |
+| ★ (disproved) | **A** — Direct address overlap FlashMemory ↔ FCS | ELIMINATED (780 KB gap) |
+
+---
+
 ## Known Workarounds (Unconfirmed)
 
 1. **Disable Camera FCS mode** — Arduino IDE `Camera FCS mode process = Disable`. This bypasses the fast cold start entirely but increases boot time. Does NOT fix the camera, just falls back to slow boot.
@@ -362,21 +513,25 @@ Distance between regions (780 KB) makes electrical disturb implausible.
 
 ## Open Questions
 
-1. **What exact flash address does the pre-compiled Arduino SDK binary use for NOR_FLASH_FCS?** — RTOS SDK says 0xF0D000. Arduino partition table implies 0x8000 for boot ROM read. Resolving this requires disassembly of `libvideo.a` from the Arduino package.
+1. **NOR_FLASH_FCS address in pre-compiled Arduino SDK:** ~~Requires libvideo.a disassembly.~~ **RESOLVED** — Confirmed `0xF0D000` in both RTOS SDK and Arduino SDK `platform_opts.h`. No divergence.
 
-2. **Does disabling FCS mode in Arduino IDE actually prevent the bug?** — Needs experimental verification.
+2. **Does disabling FCS mode in Arduino IDE actually prevent the bug?** — Needs experimental verification. If FCS is disabled, `video_meta_data_process()` should not call `SAVE_TO_FLASH`, eliminating Hypothesis F entirely. This would be an immediate confirming test.
 
-3. **Is the FCS parameter address configurable?** — If it can be moved to a non-user area, that fixes the problem without breaking FlashMemory.
+3. **Is the FCS parameter address configurable?** — `NOR_FLASH_FCS = USER_DATA_BASE + 0x0D000`. `USER_DATA_BASE = 0xF00000` is a compile-time constant in `platform_opts.h`. Relocating it requires recompiling the SDK. No runtime config found.
 
-4. **Is the bug present in v4.0.7 (before FlashMemory was added)?** — Would confirm v4.0.8 as the introduction point.
+4. **Is the bug present in v4.0.7 (before FlashMemory API was added)?** — Would confirm v4.0.8 as the introduction point.
 
-5. **Has Realtek been notified?** — No public GitHub issue or forum post directly reporting this specific flash/FCS interaction found.
+5. **Has Realtek been notified?** — No public GitHub issue or forum post directly reporting this. **RESOLVED (negatively)** — Bug is publicly undocumented (Finding 24). Should consider filing a GitHub issue against `ameba-arduino-pro2`.
 
-6. **Does FlashMemory.write() trigger a SAVE_TO_FLASH video event?** — Critical for confirming Hypothesis D. Need to trace the FlashMemory call path into RTOS video subsystem.
+6. **Does FlashMemory.write() trigger a SAVE_TO_FLASH video event?** — **RESOLVED** — No direct coupling found. FlashMemory.cpp has zero video subsystem calls. The race occurs at the SPI flash controller level (RT_DEV_LOCK_FLASH bypass), not via event propagation.
 
-7. **What is the video message queue slot count?** — If it is ~70, this would confirm Hypothesis E and explain the "slot full" symptom at 70 writes precisely.
+7. **What is the video message queue slot count?** — **RESOLVED** — No ~70-slot queue exists. Hypothesis E eliminated (Finding 19).
 
-8. **Is SAVE_TO_FLASH called as a background RTOS task?** — If synchronous (blocking), the race window would be different than if asynchronous. Async makes Hypothesis D more likely.
+8. **Is SAVE_TO_FLASH called as a background RTOS task?** — **RESOLVED** — Fully synchronous, ~60ms blocking, in the video module RTOS task context (Finding 18).
+
+9. **When exactly is `video_meta_data_process()` called?** — The triggering condition for SAVE_TO_FLASH (line 411, `module_video.c`) is not yet fully traced. Is it every frame? Every N seconds? On AE/AWB convergence only? The frequency determines how often the ~60ms race window opens.
+
+10. **Can `device_mutex_lock(RT_DEV_LOCK_FLASH)` be called from Arduino user code as a workaround?** — If the symbol is exported, users could wrap their `FlashMemory.write()` calls with the mutex themselves while waiting for an SDK fix.
 
 ---
 
@@ -402,3 +557,9 @@ Distance between regions (780 KB) makes electrical disturb implausible.
 - ameba-rtos-pro2 video_api.c (commit 4dcbdb9): https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/4dcbdb9e67c01588079d3d47114a2fcd09ae5cd1/component/video/driver/RTL8735B/video_api.c
 - ameba-arduino-doc flash layout rst: https://github.com/Ameba-AIoT/ameba-arduino-doc/blob/d0b6ca31683ce31b72a24f9f227432914b13b944/source/FAQ/amb82-mini_flash_layout.rst
 - FCS example source: https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/4dcbdb9e67c01588079d3d47114a2fcd09ae5cd1/project/realtek_amebapro2_v0_example/src/mmfv2_video_example/mmf2_video_example_joint_test_rtsp_mp4_init_fcs.c
+- ameba-rtos-pro2 ftl_nor_api.c (RT_DEV_LOCK_FLASH): https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/main/component/ftl/ftl_nor_api.c
+- commit fb3dc02 — module_video.c queue init guard: https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/fb3dc02
+- commit 3130193 — JPEG snapshot queue guard exception: https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/3130193
+- commit f575a69 — VOE 1.7.0.0 sync: https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/f575a69
+- ideashatch/HUB-8735 issue #10 (PS5268 sensor id fail): https://github.com/ideashatch/HUB-8735/issues/10
+- Forum thread #3983 (error after write in memory AMB82): https://forum.amebaiot.com/t/error-after-write-in-memory-amb82/3983
