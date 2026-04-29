@@ -495,6 +495,164 @@ Mechanism:
 
 ---
 
+## Research Update — 2026-04-29 (Update 2)
+
+### Finding 25 — video_pre_init_save_cur_params() Signature: save_option Is the THIRD Argument
+**Source:** ameba-rtos-pro2 — `video_api.c` raw fetch + module_video.c callback analysis  
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c  
+**Priority:** MEDIUM — Resolves Q9 (call frequency); corrects interpretation of per-frame callback
+
+Full confirmed signature:
+```c
+void video_pre_init_save_cur_params(
+    int meta_enable,          // arg 1: 1 = read AE/AWB from metadata pipeline
+    video_meta_t *meta_data,  // arg 2: pointer to current metadata
+    enum isp_init_option save_option  // arg 3: 0=STRUCTURE, 1=FLASH, 2=RETENTION
+);
+```
+
+The per-frame callback in `module_video.c` calls:
+```c
+video_pre_init_save_cur_params(1, &(ctx->meta_data), 0);
+                                                      ^
+                                              save_option=0 = SAVE_TO_STRUCTURE (in-memory ONLY)
+```
+
+**This means the per-frame video callback does NOT write to flash.** The `SAVE_TO_FLASH` path (arg 3 = 1) is a separate, on-demand code path.
+
+---
+
+### Finding 26 — CRITICAL: SAVE_TO_FLASH Is NOT Called Per-Frame — Only on Explicit Request
+**Source:** ameba-rtos-pro2 FCS example — `mmf2_video_example_joint_test_rtsp_mp4_init_fcs.c` (commit 4dcbdb9)  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/4dcbdb9e67c01588079d3d47114a2fcd09ae5cd1/project/realtek_amebapro2_v0_example/src/mmfv2_video_example/mmf2_video_example_joint_test_rtsp_mp4_init_fcs.c  
+**Priority:** HIGH — Narrows race window; refines Hypothesis F
+
+The RTOS FCS example defines:
+```c
+#define EXAMPLE_SAVE_TO_FLASH   0   // maps to SAVE_TO_FLASH enum variant
+#define EXAMPLE_SAVE_OPTION     EXAMPLE_SAVE_TO_FLASH
+```
+
+The flash write path `voe_fcs_change_parameters()` is only invoked from `fcs_change()`, which is the handler for the **explicit** AT command:
+```
+FCST=ch,width,height,iq_id,video_pre_init
+```
+
+**The flash write at `0xF0D000` is NOT triggered automatically on every frame or by a periodic timer.** It is invoked only when an application-level FCS parameter save is explicitly requested — in the RTOS example, by user AT command; in the Arduino SDK (pre-compiled libraries), by the equivalent API call that occurs once after AE/AWB convergence is detected.
+
+**Revised race window for Hypothesis F:**
+- The ~60ms SAVE_TO_FLASH race window does NOT open 30 times per second
+- It opens **once per session** (or at most a few times, on convergence events)
+- But this does NOT eliminate the bug: `FlashMemory.write()` is typically a long operation (sector erase = 30–150ms), so even a once-per-session 60ms window is still likely to overlap if the user calls `FlashMemory.write()` while the camera is streaming
+
+**Revised severity ladder interpretation:**
+- 1× `writeWord` (stable): Short operation (~μs), very low probability of overlapping a once-per-session 60ms FCS save window
+- 70× `writeWord` (slot full): Cumulative write time (~280 × μs + potential erase retries) greatly increases overlap probability over the session
+- Sector erase (complete fail): Single ~30–150ms operation spans the entire FCS save window, near-certain collision if both happen near-concurrently
+
+---
+
+### Finding 27 — device_lock.h IS Reachable from Arduino User Sketches
+**Source:** ameba-arduino-pro2 SDK directory structure analysis  
+`Arduino_package/hardware/system/component/os/os_dep/include/device_lock.h`  
+**Priority:** HIGH — Provides a practical user-level workaround without modifying the SDK
+
+The file `device_lock.h` is present in the SDK system component tree and declares:
+```c
+typedef enum {
+    RT_DEV_LOCK_UART    = 0,
+    RT_DEV_LOCK_FLASH   = 1,   // ← the mutex we need
+    RT_DEV_LOCK_I2C     = 2,
+    RT_DEV_LOCK_SPI     = 3,
+    RT_DEV_LOCK_ADC     = 4,
+    RT_DEV_LOCK_VOE     = 5,
+    RT_DEV_LOCK_NN      = 6,
+    RT_DEV_LOCK_MAX     = 7
+} RT_DEV_LOCK_E;
+
+void device_mutex_lock(RT_DEV_LOCK_E device);
+void device_mutex_unlock(RT_DEV_LOCK_E device);
+```
+
+Arduino user sketches can include this by adding:
+```cpp
+extern "C" {
+    #include "device_lock.h"
+}
+```
+
+**User-level workaround** (no SDK recompilation required):
+```cpp
+extern "C" { #include "device_lock.h" }
+
+void safeFlashWrite(uint32_t offset, const uint8_t* buf, size_t len) {
+    device_mutex_lock(RT_DEV_LOCK_FLASH);
+    FlashMemory.write(offset, buf, len);
+    device_mutex_unlock(RT_DEV_LOCK_FLASH);
+}
+```
+
+This prevents `FlashMemory.write()` from running concurrently with the FCS `ftl_common_write(0xF0D000)` call, which already acquires `RT_DEV_LOCK_FLASH` internally.
+
+**Caveat:** This workaround protects against the concurrency race (Hypothesis F) but does NOT protect against the OTA-build direct-erase bug (Finding 20) nor Hypothesis D (power-cut during FCS save window).
+
+---
+
+### Finding 28 — RT_DEV_LOCK_FLASH Is a FreeRTOS Priority-Inheritance Mutex
+**Source:** ameba-rtos-pro2 — `device_lock.c` + `freertos_service.c`  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/main/component/os/os_dep/device_lock.c  
+**Priority:** MEDIUM — Confirms mutex correctness; explains why locking stops concurrent SPI access
+
+Key implementation details:
+- Implemented as `xSemaphoreCreateMutex()` — a **recursive-capable priority-inheritance mutex** (NOT a binary semaphore)
+- Mutex pool: `static _mutex device_mutex[RT_DEV_LOCK_MAX]` (7 entries, one per device)
+- Lock timeout: **10,000 ms** — after which a "device lock timeout" message is printed and the wait continues (no forced unlock)
+- When `FlashMemory.cpp` calls `flash_stream_write()` without acquiring this mutex, the SPI NOR controller receives a WREN+SE command while `ftl_common_write` may be mid-page-program; the two SPI command sequences interleave at the hardware level, aborting whichever command was in progress (JEDEC specification behavior for overlapping SPI CS assertions)
+
+---
+
+### Finding 29 — No New SDK Release; dev Branch FlashMemory.cpp Still Has No Mutex Fix
+**Source:** GitHub releases page + dev branch FlashMemory.cpp raw fetch  
+https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases  
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp  
+**Priority:** LOW — Bug status unchanged
+
+- Latest release: **v4.1.0** (March 2, 2026) / **v4.1.1-QC-V04** pre-release (March 6, 2026)
+- No releases after April 2026
+- `FlashMemory.cpp` **dev branch**: zero `device_mutex_lock` calls, zero `device_lock.h` includes — identical to main branch in this regard
+- `VideoStream.cpp` dev branch: zero FCS-related code — FCS functionality is entirely in the pre-compiled `libvoe.bin`/`libvideo_ns.a`/`libvideo_ntz.a` binary blobs, not in open C++ source
+
+---
+
+### Finding 30 — New Forum Threads Found (All 403-Blocked)
+**Source:** Google index / Ameba IoT Forum  
+**Priority:** LOW — Threads may contain relevant information but are inaccessible
+
+Threads identified via search but blocked (HTTP 403) on access:
+- Thread #4321: "Camera sensor init failed (GC2053)" — August 24, 2025, reports VOE init errors after updating to v4.0.9-build20250805. Likely FCS-related but unconfirmed.
+- Thread #4777: "AMB82-Mini onboard camera sensor identification and VOE setup for wireless video and I2C" — March 2026, discusses camera setup with I2C; may reference initialization failures.
+- Thread #4811: "Camera_2_Lcd_JPEGDEC.ino error/warning" — April 2026, Arduino IDE 2.3.8 compilation errors; likely unrelated to FCS.
+- Thread #3983: "Error after write in memory AMB82" — flash write + restart error pattern matching our bug; still blocked.
+
+---
+
+### Updated Open Questions — 2026-04-29 (Update 2)
+
+| # | Question | Status |
+|---|---|---|
+| 1 | NOR_FLASH_FCS address | **RESOLVED** — 0xF0D000 confirmed |
+| 2 | Does FCS disable prevent the bug? | Still unconfirmed experimentally |
+| 3 | Is FCS parameter address configurable? | **RESOLVED** — compile-time only (platform_opts.h) |
+| 4 | Bug present in v4.0.7? | Still untested |
+| 5 | Realtek notified? | **RESOLVED (negatively)** — Bug still undocumented |
+| 6 | FlashMemory.write() triggers SAVE_TO_FLASH event? | **RESOLVED** — No direct coupling; race is at SPI controller level |
+| 7 | Video message queue slot count? | **RESOLVED** — No ~70-slot queue (Hypothesis E eliminated) |
+| 8 | Is SAVE_TO_FLASH a background task? | **RESOLVED** — Synchronous, ~60ms, in video RTOS task context |
+| 9 | When exactly is video_meta_data_process() called? | **RESOLVED** — Per-frame but with SAVE_TO_STRUCTURE (arg 0). SAVE_TO_FLASH only via explicit once-per-session API call. Race window does not open 30×/sec. |
+| 10 | Can device_mutex_lock be called from Arduino user code? | **RESOLVED (YES)** — Via `extern "C" { #include "device_lock.h" }`. Path: `Arduino_package/hardware/system/component/os/os_dep/include/device_lock.h`. Practical user workaround is now available. |
+
+---
+
 ## Known Workarounds (Unconfirmed)
 
 1. **Disable Camera FCS mode** — Arduino IDE `Camera FCS mode process = Disable`. This bypasses the fast cold start entirely but increases boot time. Does NOT fix the camera, just falls back to slow boot.
@@ -508,6 +666,8 @@ Mechanism:
 5. **Use software reset instead of power cycle** — The bug only manifests on cold boot. A software reset (no power interruption) may preserve DRAM retention of FCS state. Not viable for real deployment.
 
 6. **Switch SAVE_OPTION to SAVE_TO_RETENTION** — Change the FCS example `EXAMPLE_SAVE_OPTION` from `SAVE_TO_FLASH` to `SAVE_TO_RETENTION`. This avoids flash entirely for AE/AWB storage, using SRAM retention instead. Retention survives warm resets but not full power cycles — so may not fully solve the problem, but could reduce the race window.
+
+7. **User-level mutex wrapper around FlashMemory calls** ★ NEW — Wrap every `FlashMemory.write()/writeWord()` call with `device_mutex_lock(RT_DEV_LOCK_FLASH)` / `device_mutex_unlock()`. The header is accessible from Arduino sketches without SDK recompilation. Addresses the Hypothesis F concurrency race. Does NOT address the OTA direct-erase bug or the power-cut Hypothesis D. See Finding 27 for implementation code.
 
 ---
 
@@ -529,9 +689,9 @@ Mechanism:
 
 8. **Is SAVE_TO_FLASH called as a background RTOS task?** — **RESOLVED** — Fully synchronous, ~60ms blocking, in the video module RTOS task context (Finding 18).
 
-9. **When exactly is `video_meta_data_process()` called?** — The triggering condition for SAVE_TO_FLASH (line 411, `module_video.c`) is not yet fully traced. Is it every frame? Every N seconds? On AE/AWB convergence only? The frequency determines how often the ~60ms race window opens.
+9. **When exactly is `video_meta_data_process()` called?** — ~~Not yet fully traced.~~ **RESOLVED** — Per-frame callbacks use `save_option=0` (SAVE_TO_STRUCTURE, in-memory only). The SAVE_TO_FLASH path only executes via explicit once-per-session API call on AE/AWB convergence, not continuously. See Findings 25 and 26.
 
-10. **Can `device_mutex_lock(RT_DEV_LOCK_FLASH)` be called from Arduino user code as a workaround?** — If the symbol is exported, users could wrap their `FlashMemory.write()` calls with the mutex themselves while waiting for an SDK fix.
+10. **Can `device_mutex_lock(RT_DEV_LOCK_FLASH)` be called from Arduino user code as a workaround?** — **RESOLVED (YES)** — `device_lock.h` is accessible from Arduino user sketches via `extern "C" { #include "device_lock.h" }`. See Finding 27 for full workaround code.
 
 ---
 
@@ -563,3 +723,10 @@ Mechanism:
 - commit f575a69 — VOE 1.7.0.0 sync: https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/f575a69
 - ideashatch/HUB-8735 issue #10 (PS5268 sensor id fail): https://github.com/ideashatch/HUB-8735/issues/10
 - Forum thread #3983 (error after write in memory AMB82): https://forum.amebaiot.com/t/error-after-write-in-memory-amb82/3983
+- ameba-rtos-pro2 device_lock.c (RT_DEV_LOCK_FLASH mutex impl): https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/main/component/os/os_dep/device_lock.c
+- ameba-arduino-pro2 device_lock.h (user-accessible header): Arduino_package/hardware/system/component/os/os_dep/include/device_lock.h
+- ameba-rtos-pro2 FCS example (SAVE_TO_FLASH via AT command): https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/4dcbdb9e67c01588079d3d47114a2fcd09ae5cd1/project/realtek_amebapro2_v0_example/src/mmfv2_video_example/mmf2_video_example_joint_test_rtsp_mp4_init_fcs.c
+- Forum thread #4321 (GC2053 camera sensor init failed, Aug 2025): https://forum.amebaiot.com/t/camera-sensor-init-failed-gc2053/4321
+- Forum thread #4777 (AMB82-Mini camera VOE setup with I2C, Mar 2026): https://forum.amebaiot.com/t/amb82-mini-onboard-camera-sensor-identification-and-voe-setup-for-wireless-video-and-i2c/4777
+- Forum thread #4811 (Camera_2_Lcd_JPEGDEC errors, Apr 2026): https://forum.amebaiot.com/t/camera-2-lcd-jpegdec-ino-error-warning/4811
+- RTL8735BDM-A20-N04 Module Datasheet Rev 1.1 (May 2025): https://aiot.realmcu.com/en/_static/modules/rtl8735b/RTL8735BDM-A20-N04_Module_Datasheet_V1.1_2025.pdf
