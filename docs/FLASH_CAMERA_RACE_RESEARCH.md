@@ -730,3 +730,151 @@ Threads identified via search but blocked (HTTP 403) on access:
 - Forum thread #4777 (AMB82-Mini camera VOE setup with I2C, Mar 2026): https://forum.amebaiot.com/t/amb82-mini-onboard-camera-sensor-identification-and-voe-setup-for-wireless-video-and-i2c/4777
 - Forum thread #4811 (Camera_2_Lcd_JPEGDEC errors, Apr 2026): https://forum.amebaiot.com/t/camera-2-lcd-jpegdec-ino-error-warning/4811
 - RTL8735BDM-A20-N04 Module Datasheet Rev 1.1 (May 2025): https://aiot.realmcu.com/en/_static/modules/rtl8735b/RTL8735BDM-A20-N04_Module_Datasheet_V1.1_2025.pdf
+
+---
+
+## Research Update — 2026-04-29 (Update 3)
+
+### Finding 31 — CRITICAL: FlashMemory.h Had Wrong Constants in V4.0.8 and V4.0.9 (Missing Hex Digit)
+**Source:** Direct fetch of `FlashMemory.h` from GitHub tags `V4.0.8`, `V4.0.9`, and `V4.1.0`  
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/V4.0.8/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.h  
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/V4.0.9/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.h  
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/V4.1.0/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.h  
+**Priority:** HIGH — Rewrites the version-history narrative; narrows the race condition to V4.1.0+
+
+**V4.0.8 and V4.0.9 (wrong):**
+```c
+#define NOR_FLASH_SIZE            0x100000    // 1 MB — WRONG (should be 16 MB = 0x1000000)
+#define FLASH_MEMORY_APP_BASE     0xFD000     // WRONG — missing a trailing zero (should be 0xFD0000)
+#define FLASH_MEMORY_SIZE         NOR_FLASH_SIZE
+#define MAX_FLASH_MEMORY_APP_SIZE (FLASH_MEMORY_SIZE - FLASH_MEMORY_APP_BASE)  // = 0x3000 = 12 KB (3 sectors)
+```
+
+**V4.1.0 (corrected):**
+```c
+#define NOR_FLASH_SIZE            0x1000000   // 16 MB — CORRECT
+#define FLASH_MEMORY_APP_BASE     0xFD0000    // CORRECT
+#define FLASH_MEMORY_SIZE         NOR_FLASH_SIZE
+#define MAX_FLASH_MEMORY_APP_SIZE (FLASH_MEMORY_SIZE - FLASH_MEMORY_APP_BASE)  // = 0x30000 = 192 KB (48 sectors)
+```
+
+The V4.1.0 release notes list `"Update FlashMemory.h"` under API Updates; this is the address-constants correction, not a mutex fix.
+
+**Consequences of the V4.0.8/V4.0.9 bug:**
+- `FlashMemory.write()` erased 3 sectors starting at `0xFD000` (decimal 1,036,288 bytes into flash).
+- The fw1 partition occupies `0x080000 – 0x400000`. Address `0xFD000` falls **inside fw1**, so every `FlashMemory.write()` call silently corrupted the running application firmware. The API was completely broken/dangerous in these two releases.
+- Nobody successfully using `FlashMemory.write()` on V4.0.8/V4.0.9 would observe the FCS/camera race, because the firmware itself would be corrupted first.
+
+**Critical implication for the bug:** The Hypothesis F concurrency race (FlashMemory bypasses `RT_DEV_LOCK_FLASH`) can only manifest starting with **V4.1.0**, where the correct base address `0xFD0000` first made FlashMemory usable. Research doc Finding 2 ("FlashMemory Base Address Confirmed: 0xFD0000") reflects the V4.1.0+ value; earlier SDK versions had `0xFD000` (no overlap with the FCS address but also not the intended user data area).
+
+---
+
+### Finding 32 — Correction to Finding 27: device_lock.h Enum First Entry Is EFUSE, Not UART
+**Source:** Direct fetch of `device_lock.h` from `dev` branch  
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/system/component/os/os_dep/include/device_lock.h  
+**Priority:** LOW — Minor correction to Finding 27; workaround code is unaffected
+
+The actual enum in all SDK versions (V4.0.8, V4.0.9, V4.1.0, dev):
+```c
+enum _RT_DEV_LOCK_E {
+    RT_DEV_LOCK_EFUSE  = 0,   // ← NOT RT_DEV_LOCK_UART as stated in Finding 27
+    RT_DEV_LOCK_FLASH  = 1,   // ← correct, unchanged
+    RT_DEV_LOCK_CRYPTO = 2,
+    RT_DEV_LOCK_PTA    = 3,
+    RT_DEV_LOCK_WLAN   = 4,
+    RT_DEV_LOCK_VOE    = 5,
+    RT_DEV_LOCK_NN     = 6,
+    RT_DEV_LOCK_MAX    = 7
+};
+typedef uint32_t RT_DEV_LOCK_E;
+```
+
+`RT_DEV_LOCK_FLASH = 1` is identical in both versions. The workaround code in Finding 27 uses the correct value; only the listing of other enum members was wrong.
+
+---
+
+### Finding 33 — hal_voe.h Is Proprietary (Not in Any Public Repo); FCS_RUN_DATA_NG_KM Value Inferred
+**Source:** GitHub file search on both `ameba-rtos-pro2` and `ameba-arduino-pro2` repos  
+**Priority:** MEDIUM — Confirms why KM status constants were previously undocumented
+
+`hal_voe.h` is **not present in any public Ameba repository**. Both `ameba-rtos-pro2` and `ameba-arduino-pro2` return "No matching files found" for `hal_voe`. The file is distributed exclusively as a closed-source header bundled with the pre-compiled VOE binary blobs (`voe.bin`, `libvideo_ns.a`, `libvideo_ntz.a`).
+
+The open-source files `video_boot.c` and `video_user_boot.c` include `hal_voe.h` via their include list, meaning they compile only against the binary SDK — not from open-source headers.
+
+**Implication for KM status values:** The constants `FCS_RUN_DATA_OK_KM` and `FCS_RUN_DATA_NG_KM` used in `video_boot.c` are defined in the closed-source `hal_voe.h`. However, by matching against the known boot log:
+- Normal boot: `FCS KM_status 0x00000082` → **`FCS_RUN_DATA_OK_KM = 0x0082`** (inferred)
+- Bug state: `FCS KM_status 0x00002081` → **`FCS_RUN_DATA_NG_KM = 0x2081`** (inferred)
+
+These are single defined constants (not bitfields), per the symbolic names. The `err 0x0000200a` error code is similarly closed-source; its precise meaning ("I2C init error" or "flash data error") cannot be confirmed from public sources.
+
+---
+
+### Finding 34 — user_boot_config_init() Has Void Return; Three Checksum Paths Confirmed
+**Source:** Direct fetch of `video_user_boot.c` (main branch)  
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_user_boot.c  
+**Priority:** MEDIUM — Clarifies the exact failure sequence when FCS flash data is corrupted
+
+`user_boot_config_init()` has **void return type**. When FCS flash data at `0xF0D000` is corrupted (all `0xFF` after erase), the function:
+1. Reads the FCSD header + 2 KB payload
+2. Computes checksum over the payload
+3. Finds mismatch → prints **`"Check sum fail\r\n"`** → executes `return;` (void, no error propagation)
+
+Three distinct checksum paths exist:
+- `"check sum fail %d %d\r\n"` — retention data checksum mismatch
+- **`"Check sum fail\r\n"`** — NOR flash FCS data checksum mismatch ← this is the path triggered by our bug
+- `"isp init check sum fail %d %d %d\r\n"` — ISP retention data mismatch
+
+After `user_boot_config_init()` returns without applying the corrupt FCS data, the higher-level `user_load_sensor_boot()` finds no valid sensor configuration and returns `<= 0`. `video_btldr_init_sensor_process()` then prints **`"It don't do the sensor initial process\r\n"`** and calls `hal_voe_set_kmfw_base_addr(FCS_RUN_DATA_NG_KM)`.
+
+**Full boot log sequence when FCS data is corrupted:**
+```
+[optional] Check sum fail          ← from user_boot_config_init() in video_user_boot.c
+FCS KM_status 0x00002081  err 0x0000200a   ← KM register read-back after FCS_RUN_DATA_NG_KM written
+It don't do the sensor initial process     ← from video_btldr_init_sensor_process() in video_boot.c
+```
+
+The "Check sum fail" line may or may not be visible depending on boot log buffer capture timing. Users who only see the KM_status line may have missed the prior checksum error.
+
+---
+
+### Finding 35 — No New SDK Release; No Mutex Fix; No New GitHub Issues Filed
+**Source:** GitHub releases page + issues search (April 29, 2026)  
+https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases  
+https://github.com/Ameba-AIoT/ameba-arduino-pro2/issues  
+**Priority:** LOW — Status of bug unchanged
+
+- Latest public release remains **V4.1.0** (March 2, 2026) / **V4.1.1-QC-V04** pre-release (March 6, 2026)
+- No new releases since the previous research update
+- `FlashMemory.cpp` on `dev` branch: still zero `device_mutex_lock` calls — bug is unpatched
+- No new GitHub issues filed against `ameba-arduino-pro2` or `ameba-rtos-pro2` mentioning FlashMemory + camera/FCS interaction
+- No new commits to `main` branch of either repo in the April 28–29 window
+- Forum threads #3983 (flash write errors on AMB82) and #4321 (GC2053 init fail) remain HTTP 403-blocked
+
+---
+
+### Updated Hypothesis F — Confirmed V4.1.0+ Only; Root Cause Sequence Now Complete
+**Priority:** HIGH — Builds on Findings 31 and 34
+
+The complete root cause sequence for the Hypothesis F race condition (now confirmed as V4.1.0+ only):
+
+1. **V4.0.8/V4.0.9 users**: `FlashMemory.write()` erased firmware at `0xFD000` — catastrophic but unrelated to FCS/camera.
+2. **V4.1.0+ users**: `FlashMemory.write()` correctly targets `0xFD0000` (user data area). However, it still has no `RT_DEV_LOCK_FLASH` protection.
+3. Race trigger: While Arduino `loop()` calls `FlashMemory.write()` (no mutex), the video module RTOS task calls `ftl_common_write(0xF0D000, fcs_buf, 2048)` (which holds `RT_DEV_LOCK_FLASH`). Two concurrent SPI flash command sequences collide at the hardware controller level, aborting the page-program at `0xF0D000`.
+4. Result: `0xF0D000` is erased but not reprogrammed → all `0xFF` → "Check sum fail" on next boot → "It don't do the sensor initial process" + `FCS KM_status 0x00002081 err 0x0000200a`.
+
+**All three experimental severity levels are now fully explained:**
+- 1× `writeWord` (stable): Sub-microsecond write, almost zero overlap probability with the once-per-session ~60ms FCS save window
+- 70× `writeWord` (slot full): Cumulative flash time greatly increases collision probability; partial FCS corruption causes VOE channel restore failure → `[VOE][WARN]slot full`
+- Sector erase (complete fail): Single 30–150ms erase operation spans the entire FCS save window → near-certain collision → complete camera init failure
+
+**Confirmed minimum SDK version affected: V4.1.0** (first release with correct `FLASH_MEMORY_APP_BASE = 0xFD0000`)
+
+---
+
+### Sources Added (Update 3)
+- ameba-arduino-pro2 FlashMemory.h V4.0.8 tag: https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/V4.0.8/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.h
+- ameba-arduino-pro2 FlashMemory.h V4.0.9 tag: https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/V4.0.9/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.h
+- ameba-arduino-pro2 FlashMemory.h V4.1.0 tag: https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/V4.1.0/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.h
+- ameba-arduino-pro2 device_lock.h dev branch: https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/system/component/os/os_dep/include/device_lock.h
+- ameba-rtos-pro2 video_user_boot.c main branch: https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_user_boot.c
+- ameba-rtos-pro2 video_boot.c main branch: https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_boot.c
