@@ -1051,3 +1051,121 @@ An independent research run (approximately 6-hour cycle) covering all targeted s
 All prior findings remain valid. Bug status: **publicly undocumented and unpatched** as of 2026-04-30 end of day.
 
 **No HIGH priority confirmed fix was found in this run.**
+
+---
+
+## Research Update — 2026-04-30 (Update 4 — Late Run)
+
+### Finding 46 — V4.1.1-QC-V05: New Pre-Release Tag With April 30, 2026 Internal Build; No Fix
+**Source:** https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases/tag/V4.1.1-QC-V05
+**Priority:** LOW — Status update; no new fix
+
+The previously documented latest pre-release tag was **V4.1.1-QC-V04** (internal builds through April 17, 2026). A newer tag **V4.1.1-QC-V05** now exists, also dated March 6, 2026 on GitHub but containing internal changelog entries through **2026/04/30** (today). Features added in this tag include:
+- Battery-Powered Camera POC Example
+- Audio Trigger Recording example
+- Video with Zoom feature
+- TensorFlowLite support
+- AntiCollision POC
+- Tool updates to versions 1.4.8, 1.4.9, 1.4.10
+- Additional camera sensor support (K306P)
+
+**No mention of FlashMemory, FCS, mutex, device_mutex_lock, RT_DEV_LOCK_FLASH, or any flash-camera interaction fix** anywhere in the V4.1.1-QC-V05 changelog.
+
+---
+
+### Finding 47 — PR #407 "Add AMB82-zero" Merged April 30, 2026; No FCS Fix Included
+**Source:** https://github.com/Ameba-AIoT/ameba-arduino-pro2/pull/407
+**Priority:** LOW — New board variant confirmed; bug equally applies
+
+PR #407 ("Add AMB82-zero (#407)") was merged into `dev` on **April 30, 2026** by M-ichae-l. This is the sole commit to boards.txt today. The PR adds:
+- New board target: **AMB82-ZERO** (RTL8735B SoC, same as AMB82-MINI)
+- WDT (Watchdog Timer) API modifications
+- ATcmd codebase updates
+
+The AMB82-ZERO board's `boards.txt` entry mirrors AMB82-MINI's FCS menu configuration: **"Camera FCS Mode" defaults to "Disable"**, with Enable adding `-DArduino_FCS_MODE`. No FlashMemory or FCS-related code was modified.
+
+**Implication:** The AMB82-ZERO is another RTL8735B platform that carries the same FlashMemory/FCS concurrency bug when FCS mode is enabled. Its users will encounter identical symptoms.
+
+---
+
+### Finding 48 — FCS Mode Defaults to "Disable" for Both AMB82-MINI and AMB82-ZERO (Confirmed)
+**Source:** `ameba-arduino-pro2` dev branch — `boards.txt` (fetched April 30, 2026)
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/boards.txt
+**Priority:** MEDIUM — Important safety context for new users
+
+The `boards.txt` FCS menu, confirmed for both AMB82-MINI and AMB82-ZERO:
+```
+menu.05_FCSMode=* Camera FCS Mode
+amb82mini.menu.05_FCSMode.Disable=Disable  ← DEFAULT (listed first)
+amb82mini.menu.05_FCSMode.Disable.build.fcs_mode_val=Disable
+amb82mini.menu.05_FCSMode.Disable.build.fcs_mode_flags=          ← no flag (FCS not compiled)
+amb82mini.menu.05_FCSMode.Enable=Enable
+amb82mini.menu.05_FCSMode.Enable.build.fcs_mode_val=Enable
+amb82mini.menu.05_FCSMode.Enable.build.fcs_mode_flags=-DArduino_FCS_MODE
+```
+
+**"Disable" is listed first and is the default in Arduino IDE.** This has been the case since FCS mode was added on July 25, 2024 (commit "Add camera FCS mode support and sensor F53"). This means:
+
+- A developer who installs the SDK fresh and never changes the FCS menu is **not** affected by the bug — the race condition requires FCS mode to be enabled.
+- The bug only manifests for users who deliberately select "Camera FCS Mode: Enable" in Arduino IDE Tools, which is required for fast boot (≈250µs sensor vs. ≈4–6s without FCS).
+- The HUB-8735 / BW21-CBV user likely **enabled FCS** to achieve fast cold boot, activating the bug.
+
+---
+
+### Finding 49 — ftl_nor_api.c No Longer Found in ameba-rtos-pro2 Repository
+**Source:** GitHub code search: `repo:Ameba-AIoT/ameba-rtos-pro2 ftl_nor_api` — 0 results
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/search?q=ftl_nor_api
+**Priority:** MEDIUM — Requires re-verification of Finding 17's mutex evidence
+
+The file `component/ftl/ftl_nor_api.c`, previously confirmed in **Finding 17** as the source of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapping flash operations, now returns **0 results** from GitHub code search within the `ameba-rtos-pro2` repository. A direct raw fetch also returns HTTP 404.
+
+This likely means the file was renamed, moved, or its contents merged elsewhere during the **March 3, 2026 "Update code base"** commit (SHA a0352b6 / 7e78403) which was the most recent modification to `video_user_boot.c`. The FTL flash mutex protection may now reside in a different file (possibly `component/flash/` or inlined into a higher-level driver).
+
+**Critical caveat:** The disappearance of `ftl_nor_api.c` does NOT necessarily mean the `RT_DEV_LOCK_FLASH` mutex was removed. The FTL API (`ftl_common_write`, `ftl_common_read`) still exists and is still called by `video_api.c`. The mutex may have been preserved in a renamed file. However, until re-confirmed from the new file location, Finding 17's conclusion should be treated as **unconfirmed for the current codebase** (though the underlying SPI NOR concurrency hazard from `FlashMemory.cpp` bypassing any mutex remains valid regardless).
+
+---
+
+### Finding 50 — video_api.c Confirmed Unchanged: No Mutex Added (April 30, 2026)
+**Source:** Raw fetch of `ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c`
+**Priority:** LOW — Confirms bug still present in current codebase
+
+`video_pre_init_save_cur_params()` in the current `main` branch of `ameba-rtos-pro2` **still contains no synchronization primitives** (`device_mutex_lock`, `RT_DEV_LOCK_FLASH`, or equivalent). The function writes FCS parameters to NOR_FLASH_FCS (0xF0D000) via `ftl_common_write()` without any mutex wrapper at the call site. This matches the V4.1.0/V4.1.1 state documented in prior findings. The bug is unpatched in the RTOS SDK video driver.
+
+---
+
+### Finding 51 — New libarduino_tool Commit in ameba-rtos-pro2 (April 30, 2026); Unrelated to Bug
+**Source:** https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/2b8812c
+**Priority:** LOW — Status update
+
+Commit `2b8812c` ("Add arduino_libarduino_tool") was pushed to the `main` branch of `ameba-rtos-pro2` on April 30, 2026 by M-ichae-l. It adds:
+1. `.gitignore` — ignore `*.a` files
+2. `Readme.md` — instructions for building `libarduino.a` from ~200 source files using MSYS
+3. `libarduino_tool.exe` — 5.31 MB binary for building the Arduino library
+
+This is a **build infrastructure tool** unrelated to the FCS/FlashMemory bug. No FTL, mutex, video, camera, or FlashMemory source files were modified.
+
+---
+
+### Updated Status as of 2026-04-30 (Late Run)
+
+| Item | Status |
+|---|---|
+| Latest pre-release tag | V4.1.1-QC-V05 (internal build April 30, 2026) |
+| FlashMemory.cpp mutex fix | **Not present** — confirmed unchanged |
+| video_api.c mutex fix | **Not present** — confirmed unchanged |
+| ftl_nor_api.c | **File not found** (moved/renamed in March 2026 restructuring) |
+| AMB82-ZERO new board | Added April 30, 2026; same bug applies |
+| FCS default in boards.txt | "Disable" — new users protected by default |
+| Public bug reports | **Zero** — still undocumented |
+| Chinese-language sources | **Zero** — still unreported |
+
+**Bug status: publicly undocumented and unpatched as of 2026-04-30 (late run). No HIGH priority confirmed fix found.**
+
+---
+
+### Sources Added (Update 2026-04-30, Update 4)
+- ameba-arduino-pro2 releases (V4.1.1-QC-V05): https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases/tag/V4.1.1-QC-V05
+- ameba-arduino-pro2 PR #407 (Add AMB82-zero): https://github.com/Ameba-AIoT/ameba-arduino-pro2/pull/407
+- ameba-arduino-pro2 boards.txt (FCS default=Disable, AMB82-ZERO): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/boards.txt
+- ameba-rtos-pro2 commit 2b8812c (Add arduino_libarduino_tool): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/2b8812c
+- ameba-rtos-pro2 code search for ftl_nor_api (0 results): https://github.com/Ameba-AIoT/ameba-rtos-pro2/search?q=ftl_nor_api
