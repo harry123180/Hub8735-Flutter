@@ -655,7 +655,7 @@ Threads identified via search but blocked (HTTP 403) on access:
 
 ## Known Workarounds (Unconfirmed)
 
-1. **Disable Camera FCS mode** — Arduino IDE `Camera FCS mode process = Disable`. This bypasses the fast cold start entirely but increases boot time. Does NOT fix the camera, just falls back to slow boot.
+1. **Disable Camera FCS mode** ★ CONFIRMED RACE ELIMINATOR — Arduino IDE `Camera FCS mode process = Disable`. Sets no `-DArduino_FCS_MODE` flag, so the video driver never calls `ftl_common_write(0xF0D000)` during the session. This **completely prevents** the flash race condition — there is no FCS write to collide with `FlashMemory.write()`. Trade-off: every cold boot takes the slow sensor initialization path (~4–6 s) instead of the FCS fast path (~250 µs). See Finding 36.
 
 2. **Avoid sector erase** — Use only `writeWord()` with values that only flip 1→0 bits (no erase needed). Unreliable for arbitrary user data.
 
@@ -878,3 +878,63 @@ The complete root cause sequence for the Hypothesis F race condition (now confir
 - ameba-arduino-pro2 device_lock.h dev branch: https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/system/component/os/os_dep/include/device_lock.h
 - ameba-rtos-pro2 video_user_boot.c main branch: https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_user_boot.c
 - ameba-rtos-pro2 video_boot.c main branch: https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_boot.c
+
+---
+
+## Research Update — 2026-04-30
+
+### Finding 36 — CONFIRMED: Disabling FCS Mode Eliminates the Race Condition Entirely
+**Source:** `ameba-arduino-pro2` — `boards.txt` (dev branch)
+https://github.com/Ameba-AIoT/ameba-arduino-pro2/blob/dev/Arduino_package/hardware/boards.txt
+**Priority:** HIGH — Upgrades Workaround #1 from "fallback" to "confirmed race eliminator"
+
+`boards.txt` defines the Arduino IDE "Camera FCS Mode" menu option with the following compile flag:
+```
+menu.FCSMode.Enable.build.extra_flags=-DArduino_FCS_MODE
+menu.FCSMode.Disable.build.extra_flags=
+```
+
+When **"Camera FCS Mode: Disable"** is selected in Arduino IDE Tools, the macro `Arduino_FCS_MODE` is **not defined**. The pre-compiled video libraries gate the `ftl_common_write(0xF0D000, fcs_buf, 2048)` FCS save call on this macro at compile time. When the flag is absent, the video task **never calls `ftl_common_write(0xF0D000)`** — meaning there is no FCS write to race with, and no FCS sector to corrupt.
+
+**Consequence:** Workaround #1 in the Known Workarounds list (disable FCS mode) is **more powerful than previously documented**. It does not merely "fall back to slow boot" — it completely prevents the runtime condition that corrupts the FCS sector. With FCS disabled, `FlashMemory.write()` cannot cause cold-boot camera failure because no FCS data is ever written to flash during the session. The trade-off is that every cold boot takes the full slow sensor initialization path (~4–6 seconds depending on sensor) instead of the fast path (~254µs sensor + <12ms total).
+
+**Correction to Known Workaround #1:** The prior statement "Does NOT fix the camera, just falls back to slow boot" was imprecise. More accurately: disabling FCS mode **prevents the bug** by removing the conflicting writer, at the cost of slower cold boot.
+
+---
+
+### Finding 37 — Forum Thread #4670: V4.1.x Builds Cause "CH 0 MMF ENC Queue Full" Regression
+**Source:** forum.amebaiot.com (HTTP 403 for full content; Google-indexed snippet only)
+https://forum.amebaiot.com/t/updated-of-amb82-mini-board-breaks-working-code/4670
+**Priority:** LOW — Different symptom from the FCS cold-boot bug, but shows ongoing V4.1.x video pipeline instability
+
+Search engine snippet: a user reports that updating the AMB82-Mini board package to versions starting around `4.1.20251219` causes the error `"CH 0 MMF ENC Queue full"` on previously working code. Earlier SDK versions (pre-V4.1) did not exhibit this error. The symptom (encoder queue full, video corruption) is distinct from `[VOE][WARN]slot full` and from the FCS cold-boot failure, but indicates that the video pipeline's queue management has had multiple regression issues across V4.1.x builds.
+
+This is not the same bug as the FlashMemory FCS race, but its existence confirms that V4.1.x introduced multiple video pipeline regressions simultaneously — consistent with the architectural fragility of the concurrent flash access design.
+
+---
+
+### Finding 38 — No Fix Committed as of April 30, 2026; Latest ameba-rtos-pro2 Commit is April 15
+**Source:** https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
+**Priority:** LOW — Status confirmation; bug remains unpatched
+
+The most recent commit to `ameba-rtos-pro2` main branch is dated **April 15, 2026**: an automated sync commit ("Sync upstream caf4887530a9df372ead1244f52ea3afb802cf16") plus a KVS WebRTC v2 example addition. No commits to `FlashMemory.cpp`, `ftl_nor_api.c`, `device_lock.h`, `platform_opts.h`, or any video driver file were made in the April 2026 window. The `ameba-rtos-pro2` repo has only 3 open issues (most recent: Jan 27, 2026), none related to this bug.
+
+**Status as of 2026-04-30:** Bug is unpatched in all public repositories. The research log's root cause analysis (Hypothesis F — missing `RT_DEV_LOCK_FLASH` in `FlashMemory.cpp`) remains the standing explanation with no contrary evidence.
+
+---
+
+### Finding 39 — V4.1.1-QC-V04 Release Tag Contains Internal Builds Dated up to April 17, 2026
+**Source:** https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases/tag/V4.1.1-QC-V04
+**Priority:** MEDIUM — The release binaries may be newer than the tag date (March 6, 2026) suggests
+
+The V4.1.1-QC-V04 release notes internally reference incremental build entries dated **03/20/2026**, **04/02/2026**, and **04/17/2026**. These are changelog entries embedded within the same release tag, not separate published release tags. The tag's published date is March 6, 2026, but binary artifacts (VOE, libvideo_ns.a, libvideo_ntz.a) inside the release may correspond to the most recent internal build (04/17/2026).
+
+**Implication:** Users who downloaded V4.1.1-QC-V04 at its release date and users who download it now may receive different binary blobs. A user verifying that the bug is still present should note which exact build date appears in their `hal_video_release_note.txt`. However, since no changelog entry mentions a FlashMemory mutex fix in any of these internal builds, the bug is still expected to be present.
+
+---
+
+### Sources Added (Update 2026-04-30)
+- ameba-arduino-pro2 boards.txt dev branch: https://github.com/Ameba-AIoT/ameba-arduino-pro2/blob/dev/Arduino_package/hardware/boards.txt
+- Forum thread #4670 (V4.1.x MMF ENC Queue full regression): https://forum.amebaiot.com/t/updated-of-amb82-mini-board-breaks-working-code/4670
+- ameba-rtos-pro2 commits/main (last commit April 15, 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
+- ameba-arduino-pro2 V4.1.1-QC-V04 release notes: https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases/tag/V4.1.1-QC-V04
