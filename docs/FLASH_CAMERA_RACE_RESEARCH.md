@@ -1030,3 +1030,24 @@ Complete status as of 2026-04-30 (end of day):
 - Forum thread #4302 (VOE frame_end sensor not init, with FCS Disable): https://forum.amebaiot.com/t/voe-frame-end-sensor-didnt-initialize-done/4302
 - Forum thread #4834 (Boot failure after OTA, NOR flash not detected): https://forum.amebaiot.com/t/boot-failure-after-ota-update/4834
 - ameba-rtos-pro2 dev branch (empty/not exposed): https://github.com/Ameba-AIoT/ameba-rtos-pro2/tree/dev
+
+---
+
+## Research Update — 2026-04-30 (Independent Confirmation Run)
+
+### Finding 45 — Independent Cross-Verification of Root Cause (No New Findings)
+**Source:** Independent web search run, 2026-04-30 (this session)
+**Priority:** LOW — Redundant confirmation; no novel information
+
+An independent research run (approximately 6-hour cycle) covering all targeted sources produced no new findings not already captured in the Apr 28–Apr 30 updates above. Specifically:
+
+- **Confirmed** `NOR_FLASH_FCS = 0xF0D000` independently from `video_user_boot.c` (same value as Finding 10 from platform_opts.h)
+- **Confirmed** `user_boot_config_init()` checksum failure → void return → "It don't do the sensor initial process" (same as Finding 34)
+- **Confirmed** no new GitHub issues on ameba-arduino-pro2, ameba-rtos-pro2, ideashatch/HUB-8735, or Ai-Thinker repos
+- **Confirmed** no new SDK release (latest: V4.1.1-QC-V04 internal build Apr 17, 2026)
+- **Confirmed** zero English and Chinese-language forum/blog posts reporting this bug
+- **Confirmed** "Camera FCS mode: Disable" option exists in Arduino IDE (boards.txt compile flag -DArduino_FCS_MODE absent when disabled) — aligns with Finding 36
+
+All prior findings remain valid. Bug status: **publicly undocumented and unpatched** as of 2026-04-30 end of day.
+
+**No HIGH priority confirmed fix was found in this run.**
