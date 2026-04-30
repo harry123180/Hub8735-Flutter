@@ -938,3 +938,95 @@ The V4.1.1-QC-V04 release notes internally reference incremental build entries d
 - Forum thread #4670 (V4.1.x MMF ENC Queue full regression): https://forum.amebaiot.com/t/updated-of-amb82-mini-board-breaks-working-code/4670
 - ameba-rtos-pro2 commits/main (last commit April 15, 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
 - ameba-arduino-pro2 V4.1.1-QC-V04 release notes: https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases/tag/V4.1.1-QC-V04
+
+---
+
+## Research Update — 2026-04-30 (Update 2)
+
+### Finding 40 — FlashMemory.cpp Full Commit History: Added July 9, 2024; Last Modified September 30, 2025
+**Source:** `ameba-arduino-pro2` — commit log for `FlashMemory.cpp` (dev branch)
+https://github.com/Ameba-AIoT/ameba-arduino-pro2/commits/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
+**Priority:** MEDIUM — Establishes precise timeline of the file; confirms no changes during the V4.1.0 address-fix release window
+
+The full known commit history for `FlashMemory.cpp`:
+- **July 9, 2024** — "Add feature Flash Memory #252" — initial creation of the file
+- **September 30, 2025** — "Optimize codes #337" — last modification (nature of optimization unknown; no mutex added)
+- **No commits after September 30, 2025.** The V4.1.0 release (March 2026) updated `FlashMemory.h` constants (Finding 31) but did NOT touch `FlashMemory.cpp` itself.
+
+This means the mutex omission in `FlashMemory.cpp` has been in place since the file was first written on July 9, 2024, survived at least one "Optimize codes" pass on September 30, 2025, and remains unpatched through V4.1.1-QC-V04 (April 17, 2026 internal build).
+
+The `dev` branch of `ameba-arduino-pro2` shows **4 commits on April 17, 2026** (the most recent activity):
+1. "Add Arduino ZIP library submodules: JPEGDecoder and ArduCAM (#405)"
+2. "Pre Release Version 4.1.1"
+3. "Update wifi_drv.cpp"
+4. "Update ameba_pro2_tools 1.4.10"
+
+None of these touch FlashMemory, FCS, VOE, or any video/camera subsystem. Zero development activity on the dev branch after April 17, 2026.
+
+---
+
+### Finding 41 — Thread #4302: "[VOE]frame_end Sensor Didn't Initialize Done" Occurs With FCS Mode Disabled
+**Source:** forum.amebaiot.com thread #4302 (HTTP 403; Google-indexed snippet only)
+https://forum.amebaiot.com/t/voe-frame-end-sensor-didnt-initialize-done/4302
+**Priority:** MEDIUM — Reveals a separate, independent sensor initialization failure path distinct from the FlashMemory/FCS race
+
+Newly indexed search snippet from thread #4302 (August 9–25, 2025):
+
+Users report the error `"[VOE]frame_end: sensor didn't initialize done!"` on AMB82-MINI with Arduino IDE 2.3.6, using JXF37 and GC2053 sensors. Critically: **Camera FCS Mode was set to Disable** in these reports. This error is distinct from `"It don't do the sensor initial process"` (the FCS cold-boot failure in our bug).
+
+**Interpretation:**
+- The `"[VOE]frame_end: sensor didn't initialize done!"` error in thread #4302 occurs *independently of FCS mode* and *independently of FlashMemory writes*. It is a separate sensor initialization timing issue in the VOE pipeline.
+- Workaround #1 (disable FCS mode) prevents the FlashMemory/FCS race but does NOT prevent this separate "[VOE]frame_end" failure mode.
+- Users disabling FCS mode as a workaround for our bug should be aware that independent camera initialization failures (thread #4302 class) may still occur, particularly on SDK versions around 2.3.6 / V4.0.9.
+- The two failure modes have different root causes and different error strings; they should not be conflated.
+
+---
+
+### Finding 42 — Forum Thread #4834: Boot ROM NOR Flash Detection Failure (Late April 2026, Different Bug)
+**Source:** forum.amebaiot.com thread #4834 (HTTP 403; Google-indexed snippet only)
+https://forum.amebaiot.com/t/boot-failure-after-ota-update/4834
+**Priority:** LOW — Different failure mode; confirms ongoing RTL8735B boot reliability issues in the field
+
+A very recent thread (search engine indicates posting within ~1 week of April 30, 2026). The reported symptom is the boot ROM failing to detect/enumerate the NOR flash chip entirely — no boot proceeds. This is a distinct failure from the FCS parameter corruption bug: in our bug, the flash is detected and read correctly, but the FCS data sector contains a bad checksum. In thread #4834, the flash itself is not recognized.
+
+Possible cause: OTA update wrote an incompatible boot sector or partition table. Not related to the FlashMemory/FCS race condition.
+
+---
+
+### Finding 43 — ameba-rtos-pro2 dev Branch Not Publicly Accessible; Search Confirms Zero Mutex Code
+**Source:** https://github.com/Ameba-AIoT/ameba-rtos-pro2/tree/dev
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/search?q=device_mutex_lock+FlashMemory
+**Priority:** LOW — Status confirmation
+
+The `dev` branch of `ameba-rtos-pro2` reports "There isn't any commit history to show here" — it is either empty or not publicly exposed. This prevents reviewing any in-progress fixes.
+
+A GitHub code search for `device_mutex_lock` combined with any FlashMemory-related file in the `ameba-rtos-pro2` repository returns **zero results**. Similarly, a search for `RT_DEV_LOCK_FLASH` in any FlashMemory-related context returns zero results. The mutex protection has not been added anywhere in either the arduino or RTOS SDK repositories as of April 30, 2026.
+
+---
+
+### Finding 44 — No New SDK Release; Final Status Sweep April 30, 2026
+**Source:** Exhaustive multi-source search across GitHub, forum, CSDN, 21ic, EEWorld, bbs.ai-thinker.com
+**Priority:** LOW — Status confirmation
+
+Complete status as of 2026-04-30 (end of day):
+
+| Repository / Source | Last relevant activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (releases) | April 17, 2026 (V4.1.1-QC-V04 internal build) | No new release |
+| ameba-arduino-pro2 (dev branch) | April 17, 2026 (ArduCAM/JPEGDecoder submodules) | No FlashMemory change |
+| ameba-rtos-pro2 (main branch) | April 15, 2026 (upstream sync) | No FCS/mutex change |
+| ideashatch/HUB-8735 | December 2, 2025 | Inactive |
+| forum.amebaiot.com | Thread #4834 (late April 2026) | Unrelated flash-detect failure |
+| GitHub issues (all Ameba repos) | — | Zero issues filed for this bug |
+| CSDN / Zhihu / 21ic / EEWorld | — | Zero Chinese-language reports |
+| bbs.ai-thinker.com (BW21-CBV) | — | No camera/FCS bug threads |
+
+**The bug remains publicly undocumented, unfiled, and unpatched as of 2026-04-30.**
+
+---
+
+### Sources Added (Update 2026-04-30, Update 2)
+- ameba-arduino-pro2 FlashMemory.cpp commit log (dev): https://github.com/Ameba-AIoT/ameba-arduino-pro2/commits/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
+- Forum thread #4302 (VOE frame_end sensor not init, with FCS Disable): https://forum.amebaiot.com/t/voe-frame-end-sensor-didnt-initialize-done/4302
+- Forum thread #4834 (Boot failure after OTA, NOR flash not detected): https://forum.amebaiot.com/t/boot-failure-after-ota-update/4834
+- ameba-rtos-pro2 dev branch (empty/not exposed): https://github.com/Ameba-AIoT/ameba-rtos-pro2/tree/dev
