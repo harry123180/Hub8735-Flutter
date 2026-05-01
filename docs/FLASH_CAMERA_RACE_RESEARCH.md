@@ -1169,3 +1169,104 @@ This is a **build infrastructure tool** unrelated to the FCS/FlashMemory bug. No
 - ameba-arduino-pro2 boards.txt (FCS default=Disable, AMB82-ZERO): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/boards.txt
 - ameba-rtos-pro2 commit 2b8812c (Add arduino_libarduino_tool): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/2b8812c
 - ameba-rtos-pro2 code search for ftl_nor_api (0 results): https://github.com/Ameba-AIoT/ameba-rtos-pro2/search?q=ftl_nor_api
+
+---
+
+## Research Update — 2026-05-01
+
+### Finding 52 — RESOLVED: ftl_nor_api.c New Location Confirmed After March 2026 Restructuring
+**Source:** https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/main/component/file_system/ftl_common/ftl_nor_api.c  
+**Priority:** HIGH — Resolves the open question from Finding 49
+
+Finding 49 noted that `component/ftl/ftl_nor_api.c` returned 404 after the March 3, 2026 "Update code base" restructuring commit. The file has been located at its new path:
+
+**New path:** `component/file_system/ftl_common/ftl_nor_api.c`
+
+The full `component/file_system/ftl_common/` directory now contains:
+- `ftl_common_api.c` / `ftl_common_api.h` — top-level FTL dispatch layer (wraps NOR vs NAND)
+- `ftl_nor_api.c` / `ftl_nor_api.h` — NOR-specific FTL implementation
+- `ftl_nand_api.c` / `ftl_nand_api.h` — NAND-specific FTL implementation
+
+A separate `component/file_system/ftl/ftl.c` file also exists and contains `device_mutex_lock(RT_DEV_LOCK_FLASH)` calls at a lower abstraction layer. The directory tree is: `component/file_system/{dct,fatfs,ftl,ftl_common,fwfs,littlefs,nn,system_data,vfs}`.
+
+---
+
+### Finding 53 — CRITICAL: Complete Flash Lock Chain Mapped — FlashMemory Bypasses TWO Nested Locks
+**Source:** `ameba-rtos-pro2` — `ftl_common_api.c`, `ftl_nor_api.c` (new location confirmed in Finding 52)  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/main/component/file_system/ftl_common/ftl_common_api.c  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/main/component/file_system/ftl_common/ftl_nor_api.c  
+**Priority:** HIGH — Deepens root cause; Finding 17 was incomplete (only one lock level was known)
+
+The complete call chain for every FCS flash write via `ftl_common_write(0xF0D000, fcs_buf, 2048)`:
+
+```
+video_api.c: video_pre_init_save_cur_params()
+  └─ ftl_common_write(NOR_FLASH_FCS, ...)         [ftl_common_api.c]
+       └─ ftl_lock()                               ← acquires ftl_mutex (rtw_mutex, OUTER lock)
+       └─ _ftl_common_write()                      [ftl_common_api.c]
+            └─ ftl_write_nor()                     [ftl_nor_api.c]
+                 └─ nor_write_cb()                 [ftl_nor_api.c]
+                      └─ device_mutex_lock(RT_DEV_LOCK_FLASH)   ← INNER lock
+                      └─ flash_stream_write()      ← raw SPI write
+                      └─ device_mutex_unlock(RT_DEV_LOCK_FLASH)
+       └─ ftl_unlock()                             ← releases ftl_mutex
+```
+
+The FCS write path holds **two nested locks simultaneously** during raw flash operations:
+1. **Outer:** `ftl_mutex` (an `rtw_mutex` — FreeRTOS mutex, private to the FTL layer)
+2. **Inner:** `RT_DEV_LOCK_FLASH` (index 1 in `device_mutex[]` pool, priority-inheritance mutex)
+
+`FlashMemory.cpp` calls `flash_erase_sector()` and `flash_stream_write()` **without acquiring either lock**. It bypasses the entire FTL abstraction layer — not just the inner `RT_DEV_LOCK_FLASH`, but also the outer `ftl_mutex` that would otherwise serialize all FTL callers.
+
+**Implication for the fix:** The correct fix is to have `FlashMemory.cpp` acquire `RT_DEV_LOCK_FLASH` before each raw flash operation (the inner lock is sufficient to block concurrent raw SPI access). The `ftl_mutex` is an FTL-layer-internal lock; acquiring it from Arduino user code is neither necessary nor appropriate. The user-level workaround documented in Finding 27 (`device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper) remains correct and sufficient.
+
+---
+
+### Finding 54 — libarduino_tool README Confirms FTL Objects Are in Precompiled libarduino.a
+**Source:** `ameba-rtos-pro2` commit 2b8812c — `arduino_libarduino_tool/Readme.md`  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/2b8812c  
+**Priority:** MEDIUM — Confirms the FTL mutex code is in a precompiled binary blob; direct open-source patch is not possible
+
+The `arduino_libarduino_tool/Readme.md` (added April 30, 2026) lists the ~200 source files compiled into `libarduino.a`. Among them:
+
+```
+ftl.c.obj
+ftl_common_api.c.obj
+ftl_nand_api.c.obj
+ftl_nor_api.c.obj        ← the file containing device_mutex_lock(RT_DEV_LOCK_FLASH) in nor_write_cb()
+```
+
+This confirms that the entire FTL layer — including the lock acquisition code in `nor_write_cb` — is **precompiled into `libarduino.a`** and shipped as a binary blob in the Arduino SDK package. Users cannot modify or patch the FTL locking behavior without rebuilding this blob using `libarduino_tool.exe`.
+
+By extension, the fix for `FlashMemory.cpp` (adding `device_mutex_lock(RT_DEV_LOCK_FLASH)`) must target `FlashMemory.cpp` specifically — the only file in the Arduino SDK that calls raw flash primitives outside the precompiled FTL layer. Patching `libarduino.a` is not required because `ftl_common_write` already handles its own locking correctly.
+
+---
+
+### Finding 55 — No New Commits, Releases, Issues, or Public Reports as of 2026-05-01
+**Source:** Exhaustive sweep of all tracked sources (2026-05-01)  
+**Priority:** LOW — Status confirmation
+
+Complete status sweep for May 1, 2026:
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | April 30, 2026 (Pre Release 4.1.1 tag) | No new commits |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (April 30, 2026 internal build) | No new release |
+| ameba-rtos-pro2 (main branch) | April 30, 2026 (commit 2b8812c — libarduino_tool, Finding 51/54) | No new commits |
+| ameba-arduino-pro2 issues | 17 open issues | Zero new FCS/FlashMemory/VOE issues |
+| ameba-rtos-pro2 issues | 3 open issues | Zero new relevant issues |
+| ideashatch/HUB-8735 issues | Dec 2, 2025 | Inactive, no new issues |
+| forum.amebaiot.com | All threads 403-blocked; no Google-indexed snippets | No new relevant threads |
+| CSDN / Zhihu / 21ic / EEWorld | — | Zero Chinese-language reports |
+| bbs.ai-thinker.com (BW21-CBV) | — | No camera/FCS bug threads |
+| FlashMemory.cpp (dev) | Sept 30, 2025 last modified | Still NO mutex fix |
+| video_api.c (main) | March 3, 2026 last modified | Still NO mutex fix |
+
+**Bug status: publicly undocumented and unpatched as of 2026-05-01.**
+
+---
+
+### Sources Added (Update 2026-05-01)
+- ameba-rtos-pro2 ftl_nor_api.c (new location): https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/main/component/file_system/ftl_common/ftl_nor_api.c
+- ameba-rtos-pro2 ftl_common_api.c (new location): https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/main/component/file_system/ftl_common/ftl_common_api.c
+- ameba-rtos-pro2 commit 2b8812c README (libarduino.a object list): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/2b8812c
