@@ -1270,3 +1270,92 @@ Complete status sweep for May 1, 2026:
 - ameba-rtos-pro2 ftl_nor_api.c (new location): https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/main/component/file_system/ftl_common/ftl_nor_api.c
 - ameba-rtos-pro2 ftl_common_api.c (new location): https://github.com/Ameba-AIoT/ameba-rtos-pro2/blob/main/component/file_system/ftl_common/ftl_common_api.c
 - ameba-rtos-pro2 commit 2b8812c README (libarduino.a object list): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/2b8812c
+
+---
+
+## Research Update — 2026-05-01 (Update 2 — 6-hour cycle)
+
+### Finding 56 — VOE Updated to 1.7.1.0 (May 1, 2026 push; April 21, 2026 internal date); FCS Mirror/Flip Fix Only
+**Source:** `ameba-rtos-pro2` — commit d54e1a8 (pushed May 1, 2026)  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/d54e1a8  
+**Priority:** MEDIUM — New VOE version confirms active development; fix is unrelated to our bug
+
+The `ameba-rtos-pro2` main branch received five new commits on May 1, 2026 (the first since April 30). Commit `d54e1a8` syncs VOE from **1.7.0.0 → 1.7.1.0** and updates the binary blobs `voe.bin`, `libvideo_ns.a`, `libvideo_ntz.a`.
+
+The full `hal_video_release_note.txt` entry for 1.7.1.0 (internal date April 21, 2026, author Juling):
+
+```
+<04/21/2026 12:00 Juling>
+Version : RTL8735B_VOE_1.7.1.0
+Modified Files: All
+Change Notes:
+
+ISP/sensor related
+1. Fix dual sensor id FCS mirror/flip issue
+```
+
+**This is NOT a fix for our bug.** "Dual sensor id FCS mirror/flip issue" refers to a mirror/flip register misconfiguration when two camera sensors share an FCS parameter record. It has no relation to the `FlashMemory.write()` / `RT_DEV_LOCK_FLASH` concurrency race that causes our cold-boot FCS checksum failure.
+
+The bug (FlashMemory bypasses RT_DEV_LOCK_FLASH) remains **unaddressed** in both the VOE binary and the FlashMemory.cpp source.
+
+---
+
+### Finding 57 — IMX681 5M Resolution and FCS Binary Added (May 1, 2026)
+**Source:** `ameba-rtos-pro2` — commit 7b2b97f (May 1, 2026)  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/7b2b97f  
+**Priority:** LOW — New sensor support; indirectly widens the bug's affected surface
+
+Commit `7b2b97f` adds IMX681 5M (2592×1944 @ 4fps) sensor support. Files added:
+- `fcs_data_imx681_5m.bin` — a new FCS parameter binary for the 5M sensor
+- `iq_imx681_5m.bin` — IQ calibration
+- `sensor_imx681_5m.bin` — sensor driver binary
+- `sensor.h` — IMX681_5M macro added at 0x39; all subsequent sensor enum values shifted from 0x3A onward
+
+The presence of `fcs_data_imx681_5m.bin` confirms that every newly added sensor comes with a dedicated FCS parameter record that must be written to flash at `0xF0D000` during the first camera session. This means the FlashMemory/FCS race bug affects IMX681 5M users as well.
+
+`sensor.h` hex renumbering note: any existing application code that hardcodes sensor type values ≥ 0x39 will break silently after this commit (off-by-one shift).
+
+---
+
+### Finding 58 — OV12890 IQ Updated (May 1, 2026); video_open_close_mutex Found in video_api.c
+**Source:** `ameba-rtos-pro2` — commit 63c0a2f (May 1, 2026); `video_api.c` current main  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/63c0a2f  
+**Priority:** LOW — OV12890 IQ update unrelated; mutex observation is informational
+
+Commit `63c0a2f` updates IQ binary for OV12890 (unrelated to our bug).
+
+Separately, a review of the current `video_api.c` (main branch) reveals a new mutex declaration not previously noted:
+```c
+static _mutex video_open_close_mutex = NULL;
+```
+This mutex guards `hal_video_open()` / `hal_video_close()` serialization only — it does **not** wrap `video_pre_init_save_cur_params()` or `ftl_common_write(0xF0D000)`. The FCS write path remains unsynchronized with external flash callers. This is informational; it does not affect the bug.
+
+---
+
+### Finding 59 — Complete Status Sweep: Bug Unpatched as of 2026-05-01 (Update 2)
+**Source:** Exhaustive sweep of all tracked sources (2026-05-01, second 6-hour run)  
+**Priority:** LOW — Status confirmation
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | April 30, 2026 (Pre Release 4.1.1 tag) | No new commits since Apr 30 |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (April 30, 2026 internal build) | No new release |
+| ameba-rtos-pro2 (main branch) | **May 1, 2026** — VOE 1.7.1.0, IMX681 5M, OV12890 IQ | No FCS/mutex fix |
+| ameba-arduino-pro2 issues | 17 open issues | Zero new FCS/FlashMemory/VOE issues |
+| ameba-rtos-pro2 issues | 3 open issues | Zero new relevant issues |
+| ideashatch/HUB-8735 issues | Aug 2025 (only issue #10) | Inactive, no new issues |
+| forum.amebaiot.com | All threads 403-blocked; no new Google-indexed snippets | No new relevant threads |
+| CSDN / Zhihu / 21ic / EEWorld | — | Zero Chinese-language reports |
+| bbs.aithinker.com (BW21-CBV) | — | Camera projects only; no FCS bug threads |
+| FlashMemory.cpp (dev) | Sept 30, 2025 last modified | Still **NO mutex fix** — confirmed |
+| video_api.c (main) | March 3, 2026 last modified | Still **NO mutex fix** — confirmed |
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-01 (second run).**
+
+---
+
+### Sources Added (Update 2026-05-01, Update 2)
+- ameba-rtos-pro2 commit d54e1a8 (VOE 1.7.1.0 — dual sensor FCS mirror/flip fix): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/d54e1a8
+- ameba-rtos-pro2 commit 7b2b97f (IMX681 5M + fcs_data_imx681_5m.bin): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/7b2b97f
+- ameba-rtos-pro2 commit 63c0a2f (OV12890 IQ update): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/63c0a2f
+- ameba-rtos-pro2 commits/main (May 1, 2026 activity): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
