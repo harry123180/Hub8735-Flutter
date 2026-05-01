@@ -1359,3 +1359,139 @@ This mutex guards `hal_video_open()` / `hal_video_close()` serialization only �
 - ameba-rtos-pro2 commit 7b2b97f (IMX681 5M + fcs_data_imx681_5m.bin): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/7b2b97f
 - ameba-rtos-pro2 commit 63c0a2f (OV12890 IQ update): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/63c0a2f
 - ameba-rtos-pro2 commits/main (May 1, 2026 activity): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
+
+---
+
+## Research Update — 2026-05-01 (Update 3 — 6-hour cycle)
+
+### Finding 60 — New ameba-rtos-pro2 Sync Commit (May 1, 2026): WLAN DHCP Only; Unrelated
+**Source:** `ameba-rtos-pro2` — commit `1c1c8b711a419d2d49190d34f7c13e2fd0b14974` (GitHub actions bot, May 1, 2026)
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/1c1c8b711a419d2d49190d34f7c13e2fd0b14974
+**Priority:** LOW — New commit confirmed; not related to our bug
+
+One new commit has appeared on `ameba-rtos-pro2/main` since the previous research run. The commit is from `github-actions[bot]` and contains a single file change to `GitHub_release_note.txt`, adding:
+
+```
+[amebapro2][wlan] wowlan modify dhcp renew unit from min to sec
+SHA-1: 43d940446da966a145a2ac99f45c9af5e063e606
+```
+
+This is a WoWLAN (Wake-on-WLAN) DHCP timer unit correction in the WLAN subsystem. It has no relation to FlashMemory, FCS, mutex locking, camera, VOE, or flash-camera interaction. No FCS or FlashMemory-related files were modified.
+
+**Current latest ameba-rtos-pro2 commits (as of this run):**
+
+| SHA | Date | Message |
+|---|---|---|
+| `1c1c8b7` | May 1, 2026 | Sync upstream — wowlan dhcp renew (WLAN only) |
+| `d54e1a8` | May 1, 2026 | sync voe to 1.7.1.0 (previously documented) |
+| `7b2b97f` | May 1, 2026 | support imx681 5m resolution (previously documented) |
+| `63c0a2f` | May 1, 2026 | update ov12890 iq (previously documented) |
+| `2b8812c` | Apr 30, 2026 | Add arduino_libarduino_tool (previously documented) |
+
+---
+
+### Finding 61 — video_api.c FCS Flash Write Path Re-Confirmed: Still No Mutex at Call Site
+**Source:** `ameba-rtos-pro2/main` — `video_api.c` (fresh fetch, May 1, 2026)
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c
+**Priority:** LOW — Direct re-verification of Finding 50; bug is confirmed still present
+
+Fresh fetch of `video_api.c` (current main branch) reveals:
+
+```c
+// video_pre_init_save_cur_params() flash write path:
+if (ftl_common_write(flash_addr, fcs_buf, fcs_buf_size) >= 0) {
+    video_dprintf(VIDEO_LOG_MSG, "ISP pre init params save success\r\n");
+}
+```
+
+**The only mutex present in the file is:**
+```c
+static _mutex video_open_close_mutex = NULL;
+```
+This protects `video_open()` / `video_close()` only — it does **not** wrap `video_pre_init_save_cur_params()` or the `ftl_common_write(0xF0D000)` call. No `device_mutex_lock`, `RT_DEV_LOCK_FLASH`, or any other synchronization surrounds the FCS save call site. The race condition from Hypothesis F / Finding 17 is confirmed still present in the current codebase as of May 1, 2026.
+
+---
+
+### Finding 62 — ameba-arduino-pro2 Has Zero Open Pull Requests; No Fix Under Review
+**Source:** `ameba-arduino-pro2` pull requests page (fetched May 1, 2026)
+https://github.com/Ameba-AIoT/ameba-arduino-pro2/pulls
+**Priority:** LOW — Confirms no upstream fix is in review
+
+The `ameba-arduino-pro2` repository currently shows **0 open pull requests**. The only closed PR matching a "FlashMemory" search filter is **PR #333 "Update WiFi example"** (merged September 9, 2025, by M-ichae-l) — unrelated to flash locking or FCS. There is no pending PR adding `device_mutex_lock(RT_DEV_LOCK_FLASH)` to `FlashMemory.cpp` or any other flash-camera fix. No fix is pending Realtek review.
+
+---
+
+### Finding 63 — FlashMemory.cpp dev Branch Re-Confirmed: Still Zero Mutex Calls
+**Source:** `ameba-arduino-pro2/dev` — `FlashMemory.cpp` (fresh fetch, May 1, 2026)
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
+**Priority:** LOW — Direct re-verification; bug is confirmed still present
+
+Fresh fetch of `FlashMemory.cpp` (current dev branch) shows the complete `write()` function:
+
+```cpp
+void FlashMemoryClass::write(unsigned int offset)
+{
+    if ((_flash_base_address + offset) < FLASH_MEMORY_APP_BASE) {
+        amb_ard_printf(ARD_LOG_ERR, "\r\n[ERROR] %s. Invalid offset \n", __FUNCTION__);
+        return;
+    } else if ((_flash_base_address + offset + buf_size) > FLASH_MEMORY_SIZE) {
+        amb_ard_printf(ARD_LOG_ERR, "\r\n[ERROR] %s. Invalid offset \n", __FUNCTION__);
+        return;
+    }
+
+    for (int i = 0; i < (MAX_FLASH_MEMORY_APP_SIZE / FLASH_SECTOR_SIZE); i++) {
+        flash_erase_sector(_pFlash, (_flash_base_address + (i * FLASH_SECTOR_SIZE)));
+    }
+
+    flash_stream_write(_pFlash, (_flash_base_address + offset), buf_size, (uint8_t *)buf);
+}
+```
+
+**Zero calls** to `device_mutex_lock`, `device_mutex_unlock`, or any locking mechanism. Zero includes of `device_lock.h`. The sector erase loop and `flash_stream_write()` both execute without any synchronization guard. Last modified: September 30, 2025. Unchanged since then.
+
+---
+
+### Finding 64 — Forum Thread #4800 (uLP Battery Camera App); Possibly Relevant, Still 403-Blocked
+**Source:** forum.amebaiot.com thread #4800 — "More AMB82-mini capability for uLP battery camera application"
+https://forum.amebaiot.com/t/more-amb82-mini-capability-for-ulp-battery-camera-application/4800
+**Priority:** MEDIUM — Thread may describe interaction of power-cut + FCS save; content not accessible
+
+Thread #4800 on `forum.amebaiot.com` (appearing in Google results as approximately 1 month old, i.e., late March/early April 2026) discusses ultra-low-power battery camera applications on AMB82-MINI. This thread is **potentially adjacent** to our bug because:
+
+1. Battery-powered cameras power on and off frequently. The power-cut race window (Hypothesis D) is maximally exploited in battery camera scenarios.
+2. FCS fast cold boot (~254µs sensor init) is specifically designed for battery cameras — its entire purpose is to make repeated power-cycle boot as fast as possible.
+3. A user building a battery camera with FCS enabled who also uses `FlashMemory` for persistent settings (e.g., alarm counts, motion trigger logs) would encounter our bug on nearly every power cycle.
+
+The thread content could not be retrieved (HTTP 403). No Google-indexed snippet shows camera initialization error messages matching our bug. However, given the use-case overlap, this thread should be monitored for public disclosure of the FlashMemory/FCS interaction.
+
+---
+
+### Finding 65 — Exhaustive Status Sweep: Bug Unpatched as of 2026-05-01 (Update 3)
+**Source:** All tracked sources (ameba-arduino-pro2, ameba-rtos-pro2, ideashatch/HUB-8735, forum.amebaiot.com, CSDN, 知乎, 21ic, EEWorld, bbs.ai-thinker.com)
+**Priority:** LOW — Status confirmation
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | April 30, 2026 | No new commits |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (April 30, 2026 internal build) | No new release |
+| ameba-rtos-pro2 (main branch) | **May 1, 2026** — WLAN DHCP sync (`1c1c8b7`) | WLAN only; no FCS/mutex fix |
+| ameba-arduino-pro2 pull requests | 0 open | **No fix under review** |
+| ameba-arduino-pro2 issues | 11 open issues | Zero new FCS/FlashMemory/VOE issues |
+| ameba-rtos-pro2 issues | 3 open issues | Zero new relevant issues |
+| ideashatch/HUB-8735 issues | Issue #10 (Aug 2025) | Still only 1 issue; no new entries |
+| forum.amebaiot.com | All threads 403-blocked; no new Google snippets for bug strings | No new public bug reports |
+| CSDN / Zhihu / 21ic / EEWorld | — | Zero Chinese-language reports |
+| bbs.ai-thinker.com (BW21-CBV) | — | No camera/FCS bug threads |
+| FlashMemory.cpp (dev) | Sept 30, 2025 | **Still NO mutex fix — confirmed** |
+| video_api.c (main) | March 3, 2026 | **Still NO mutex fix at call site — confirmed** |
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-01 (third 6-hour run).**
+
+---
+
+### Sources Added (Update 2026-05-01, Update 3)
+- ameba-rtos-pro2 commit 1c1c8b7 (Sync upstream — WLAN dhcp): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/1c1c8b711a419d2d49190d34f7c13e2fd0b14974
+- ameba-arduino-pro2 pull requests (0 open): https://github.com/Ameba-AIoT/ameba-arduino-pro2/pulls
+- ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
+- ameba-rtos-pro2 video_api.c main (re-confirmed no mutex at FCS call site): https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c
+- Forum thread #4800 (uLP battery camera — 403 blocked): https://forum.amebaiot.com/t/more-amb82-mini-capability-for-ulp-battery-camera-application/4800
