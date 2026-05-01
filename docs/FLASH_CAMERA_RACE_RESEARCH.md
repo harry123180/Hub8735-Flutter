@@ -1495,3 +1495,89 @@ The thread content could not be retrieved (HTTP 403). No Google-indexed snippet 
 - ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
 - ameba-rtos-pro2 video_api.c main (re-confirmed no mutex at FCS call site): https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c
 - Forum thread #4800 (uLP battery camera — 403 blocked): https://forum.amebaiot.com/t/more-amb82-mini-capability-for-ulp-battery-camera-application/4800
+
+---
+
+## Research Update — 2026-05-01 (Update 4 — 6-hour cycle)
+
+### Finding 66 — ftl_nor_api.c: nor_info->ftl_mutex Commented Out; Refines Two-Lock Chain
+**Source:** `ameba-rtos-pro2` — `ftl_nor_api.c` (new location confirmed Finding 52)
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/file_system/ftl_common/ftl_nor_api.c
+**Priority:** MEDIUM — Refines Finding 53's two-lock chain; the NOR-layer mutex was designed but permanently disabled
+
+Inside `ftl_init_nor()`, the following line is commented out:
+```c
+//rtw_mutex_init(&nor_info->ftl_mutex);
+```
+The `nor_info_attr` struct has a `ftl_mutex` field apparently intended to provide NOR-layer serialization, but its initialization has never been activated. The NOR layer itself therefore has no mutex of its own — only the `RT_DEV_LOCK_FLASH` hardware device mutex (in `nor_write_cb()`) is active.
+
+**Revised picture for Finding 53:** Finding 53 described "two nested locks" (ftl_mutex + RT_DEV_LOCK_FLASH). The OUTER `ftl_lock()` / `ftl_unlock()` in `ftl_common_api.c` uses a mutex defined at that file's level (NOT the commented-out `nor_info->ftl_mutex`). That outer lock is still active. The commented-out `nor_info->ftl_mutex` in `ftl_nor_api.c` would have been a *third* lock if enabled, providing NOR-specific serialization below the FTL dispatch layer. Finding 53's two-lock description remains accurate (outer `ftl_common_api.c` ftl_mutex + inner `RT_DEV_LOCK_FLASH` in `nor_write_cb()`); the commented-out item is an additional disabled layer.
+
+**Implication for the workaround:** The user-level fix (`device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapping `FlashMemory.cpp` calls) remains correct and sufficient. It directly blocks concurrent raw SPI access regardless of the commented-out NOR mutex.
+
+---
+
+### Finding 67 — platform_opts.h: CONFIG_LOG_SERVICE_LOCK=0 and FLASH_APP_BASE=0xF64000
+**Source:** `ameba-rtos-pro2` — `platform_opts.h` (main branch)
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/project/realtek_amebapro2_v0_example/inc/platform_opts.h
+**Priority:** LOW — Supplementary address-map detail; minor locking observation
+
+Two previously unnoticed constants from `platform_opts.h`:
+```c
+#define CONFIG_LOG_SERVICE_LOCK  0   // Logging service mutex disabled by default
+#define FLASH_APP_BASE           USER_DATA_END   // = 0xF64000
+```
+
+`FLASH_APP_BASE` (an RTOS SDK concept, distinct from `FLASH_MEMORY_APP_BASE` in Arduino's `FlashMemory.h`) equals `USER_DATA_END = 0xF64000` — the RTOS SDK's end of reserved user-data (0xF00000–0xF64000). Arduino's `FlashMemory.h` independently defines `FLASH_MEMORY_APP_BASE = 0xFD0000`, which sits 624 KB above this RTOS boundary. These two definitions use different naming conventions and do not conflict.
+
+`CONFIG_LOG_SERVICE_LOCK = 0` disables the logging subsystem's internal mutex by default. This does not directly affect the FCS/FlashMemory race (which involves `RT_DEV_LOCK_FLASH`), but reflects the SDK's general philosophy of minimizing mutex overhead — consistent with `FlashMemory.cpp` also having no locking.
+
+---
+
+### Finding 68 — Official Documentation Contains No Warning About FlashMemory/FCS Conflict
+**Source:** `ameba-arduino-doc` — Getting Started RST (main branch)
+https://github.com/Ameba-AIoT/ameba-arduino-doc/blob/main/source/ameba_pro2/amb82-mini/Getting_Started/Getting%20Started%20with%20Ameba.rst
+**Priority:** LOW — Confirms bug is completely absent from all official Realtek documentation
+
+The official "Getting Started" guide for AMB82-MINI documents "Camera FCS Mode" as:
+- **Disable** → "No Camera FCS mode process."
+- **Enable** → "Enable Camera FCS mode, if the camera sensor has FCS mode."
+
+There is **no warning, caution, note, or documentation** of any kind regarding:
+- FlashMemory writes causing FCS cold-boot camera failure
+- The `RT_DEV_LOCK_FLASH` mutex bypass in `FlashMemory.cpp`
+- Incompatibility between the `FlashMemory` API and FCS mode when used concurrently
+- Required precautions for applications that write flash while the camera is streaming
+
+The bug is completely absent from all official Realtek/Ameba documentation as of 2026-05-01.
+
+---
+
+### Finding 69 — Complete Status Sweep: Bug Unpatched as of 2026-05-01 (Update 4)
+**Source:** Exhaustive sweep of all tracked sources (2026-05-01, fourth 6-hour run)
+**Priority:** LOW — Status confirmation
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | April 30, 2026 (Pre Release 4.1.1) | No new commits |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (April 30, 2026 internal build) | No new release |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — WLAN DHCP sync (`1c1c8b7`) | No FCS/mutex fix |
+| ameba-arduino-pro2 pull requests | 0 open | No fix under review |
+| ameba-arduino-pro2 issues | 17 open | Zero new FCS/FlashMemory/VOE issues |
+| ameba-rtos-pro2 issues | 3 open | Zero new relevant issues |
+| ideashatch/HUB-8735 issues | Issue #10 (Aug 2025) | No new issues |
+| forum.amebaiot.com | All threads 403-blocked | No new accessible content |
+| CSDN / Zhihu / 21ic / EEWorld | — | Zero Chinese-language reports |
+| bbs.ai-thinker.com (BW21-CBV) | — | No camera/FCS bug threads |
+| FlashMemory.cpp (dev) | Sept 30, 2025 | Still NO mutex fix — confirmed |
+| video_api.c (main) | March 3, 2026 | Still NO mutex fix at call site — confirmed |
+| Official documentation | — | No warning added; bug completely undocumented |
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-01 (fourth 6-hour run).**
+
+---
+
+### Sources Added (Update 2026-05-01, Update 4)
+- ameba-rtos-pro2 ftl_nor_api.c (commented-out nor_info->ftl_mutex): https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/file_system/ftl_common/ftl_nor_api.c
+- ameba-rtos-pro2 platform_opts.h (CONFIG_LOG_SERVICE_LOCK=0, FLASH_APP_BASE=0xF64000): https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/project/realtek_amebapro2_v0_example/inc/platform_opts.h
+- ameba-arduino-doc Getting Started RST (no FlashMemory/FCS warning): https://github.com/Ameba-AIoT/ameba-arduino-doc/blob/main/source/ameba_pro2/amb82-mini/Getting_Started/Getting%20Started%20with%20Ameba.rst
