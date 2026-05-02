@@ -1720,3 +1720,45 @@ An updated Google-cached snippet of thread #3983 confirms the scenario more prec
 - ameba-arduino-pro2 issues (highest open: #398 raw video, Mar 2026): https://github.com/Ameba-AIoT/ameba-arduino-pro2/issues
 - ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex, SHA 4fdfbec latest): https://github.com/Ameba-AIoT/ameba-arduino-pro2/blob/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
 - Forum thread #3983 (BLE-triggered flash writes at 0x1E20–0x1E60 inside fw1 partition; camera fail on restart): https://forum.amebaiot.com/t/error-after-write-in-memory-amb82/3983
+
+---
+
+## Research Update — 2026-05-02 (Update 3 — 6-hour cycle)
+
+### Finding 77 — Complete Status Sweep: Bug Unpatched as of 2026-05-02 (Update 3)
+**Source:** Exhaustive sweep of all tracked sources (2026-05-02, third 6-hour run)
+**Priority:** LOW — Status confirmation; no new information
+
+Sources checked and results:
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | April 30, 2026 — SHA `e218f33` ("Pre Release Version 4.1.1") | **No new commits — confirmed by direct fetch** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (April 30, 2026 internal build) | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` (WLAN dhcp sync) | **No new commits — confirmed by direct fetch + commit-page pagination** |
+| ameba-tool-rtos-pro2 (main branch) | March 9, 2026 — "Add IQ tuning tool (#2)" | **Inactive; no new commits** |
+| ameba-arduino-pro2 pull requests | 0 open, search returns "No results" for FlashMemory/FCS/mutex | **No fix under review — confirmed** |
+| ameba-arduino-pro2 issues | 12 open; highest: #398 (Mar 2026) | **Zero new FCS/FlashMemory/VOE issues — confirmed** |
+| ameba-rtos-pro2 issues | 3 open (highest: #16, Jan 2026) | **Zero new relevant issues — confirmed** |
+| ideashatch/HUB-8735 issues | Issue #10 only (Aug 2025) | **Inactive; no new issues — confirmed** |
+| forum.amebaiot.com | All threads 403-blocked; no threads ≥ #4840 indexed | **No new accessible content; no new bug-string matches** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports — confirmed** |
+| bbs.ai-thinker.com (BW21-CBV) | — | **No camera/FCS bug threads — 403 on forum index** |
+| FlashMemory.cpp (dev, SHA 4fdfbec) | Sept 30, 2025 | **Still NO mutex fix — re-confirmed by direct raw fetch** |
+| video_api.c (main) | March 3, 2026 | **Still NO mutex fix at FCS call site — confirmed** |
+| Official documentation | — | **No FlashMemory/FCS warning added — confirmed** |
+
+Direct raw fetch of `FlashMemory.cpp` (dev branch) once more confirms the `write()` function body is identical to the September 30, 2025 version: zero `device_mutex_lock` calls, zero `device_lock.h` includes, zero FCS guards.
+
+The exact bug-signature strings `"It don't do the sensor initial process"` and `"FCS KM_status 0x00002081"` return zero new indexed results beyond Issue #251 (previously documented). The bug remains publicly unknown outside of this research log and the issue reporter.
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-02 (third 6-hour run).**
+
+---
+
+### Sources Added (Update 2026-05-02, Update 3)
+- ameba-arduino-pro2 dev branch commits (confirmed last: e218f33, Apr 30, 2026): https://github.com/Ameba-AIoT/ameba-arduino-pro2/commits/dev
+- ameba-rtos-pro2 main branch commits (confirmed last: 1c1c8b7, May 1, 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
+- ameba-tool-rtos-pro2 main branch (last commit Mar 9, 2026 — IQ tuning tool): https://github.com/Ameba-AIoT/ameba-tool-rtos-pro2/commits/main
+- ameba-arduino-pro2 pull requests (0 open; no FCS/FlashMemory PRs in history): https://github.com/Ameba-AIoT/ameba-arduino-pro2/pulls
+- ameba-arduino-pro2 FlashMemory.cpp raw dev (re-confirmed no mutex, full write() body verified): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
