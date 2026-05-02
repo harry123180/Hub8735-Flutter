@@ -1762,3 +1762,64 @@ The exact bug-signature strings `"It don't do the sensor initial process"` and `
 - ameba-tool-rtos-pro2 main branch (last commit Mar 9, 2026 — IQ tuning tool): https://github.com/Ameba-AIoT/ameba-tool-rtos-pro2/commits/main
 - ameba-arduino-pro2 pull requests (0 open; no FCS/FlashMemory PRs in history): https://github.com/Ameba-AIoT/ameba-arduino-pro2/pulls
 - ameba-arduino-pro2 FlashMemory.cpp raw dev (re-confirmed no mutex, full write() body verified): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
+
+---
+
+## Research Update — 2026-05-02 (Update 4 — 6-hour cycle)
+
+### Finding 78 — Forum Thread #4748: "[VOE][WARN]slot full" Search Returns Previously Undocumented Thread
+**Source:** Google search `"[VOE][WARN]slot full" ameba RTL8735`; forum.amebaiot.com thread #4748 (403-blocked)
+https://forum.amebaiot.com/t/voe-warn-slot-full/4748  
+**Priority:** MEDIUM — Previously unlogged thread containing our exact bug signature string; content inaccessible
+
+A targeted search for the exact string `"[VOE][WARN]slot full"` surfaced forum thread **#4748** — a thread that was not captured in any prior research run. Thread #4777 was previously documented (Finding 30), but #4748 is new to the log.
+
+The thread title and/or URL slug suggests it directly discusses the `[VOE][WARN]slot full` warning. The page is HTTP 403-blocked, so no content, poster identity, date, resolution, or relationship to the FlashMemory/FCS race can be confirmed. Its existence alongside thread #4777 suggests at least two independent reporters have encountered the `slot full` symptom on AMB82-MINI/RTL8735B, making it more likely to be a recurring field issue rather than a one-off configuration error.
+
+**Priority note:** If thread #4748 becomes accessible (e.g., via a future public caching or Realtek forum policy change), it should be checked for any confirmed fix or workaround distinct from those already documented.
+
+---
+
+### Finding 79 — Full Commit-History Search: Neither ameba-arduino-pro2 Nor ameba-rtos-pro2 Has Ever Referenced "mutex" + FlashMemory Together
+**Source:** GitHub commit-message search: `repo:Ameba-AIoT/ameba-arduino-pro2 FlashMemory mutex` → 0 results; `repo:Ameba-AIoT/ameba-rtos-pro2 FCS flash` → 0 results  
+**Priority:** MEDIUM — Confirms no fix has ever been attempted or discussed in commit history
+
+Two exhaustive searches of the complete commit histories of both repositories confirm:
+
+1. **`repo:Ameba-AIoT/ameba-arduino-pro2 FlashMemory mutex`** — 0 results. `FlashMemory.cpp` has only 3 commits in its entire history (initial creation July 9, 2024; two optimization commits September 30, 2025). No commit message has ever mentioned `mutex`, `lock`, `FCS`, `RT_DEV_LOCK_FLASH`, or any synchronization concept in relation to `FlashMemory`. The file's last touching commit SHA is `4fdfbec` ("Optimize codes #337", Sep 30, 2025).
+
+2. **`repo:Ameba-AIoT/ameba-rtos-pro2 FCS flash`** — 0 results. No commit in the entire ameba-rtos-pro2 history has ever addressed the intersection of FCS and flash memory access serialization in a commit message. The `RT_DEV_LOCK_FLASH` symbol exists in source files (as documented in Findings 17, 28, 53) but has never been added to `FlashMemory.cpp` or mentioned in any fix-oriented commit.
+
+**Implication:** There is no evidence that Realtek developers have ever recognized, discussed internally (in visible commit messages), or begun to address the `FlashMemory`/FCS mutex omission. The fix has not been started, not been reviewed, and not been merged — in either repository, across their entire public commit histories.
+
+---
+
+### Finding 80 — Complete Status Sweep: Bug Unpatched as of 2026-05-02 (Update 4)
+**Source:** Exhaustive sweep of all tracked sources (2026-05-02, fourth 6-hour run)  
+**Priority:** LOW — Status confirmation
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | April 30, 2026 — SHA `e218f33` | **No new commits** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (April 30, 2026) | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` | **No new commits; no FCS/mutex fix** |
+| ameba-arduino-pro2 pull requests | 0 open | **No fix under review** |
+| ameba-arduino-pro2 issues | 12 open (highest: #398, Mar 2026) | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open (highest: #16, Jan 2026) | **Zero new relevant issues** |
+| ideashatch/HUB-8735 | Dec 2, 2025 — SHA `870a7e0` | **Inactive; no new issues** |
+| forum.amebaiot.com | All threads 403-blocked; threads #4748 and #4777 are highest indexed for `[VOE][WARN]slot full` | **No accessible content; #4748 newly logged** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports** |
+| bbs.ai-thinker.com (BW21-CBV) | — | **No camera/FCS bug threads** |
+| FlashMemory.cpp (dev, SHA 4fdfbec) | Sept 30, 2025 | **Still NO mutex fix — confirmed** |
+| video_api.c (main) | March 3, 2026 | **Still NO mutex fix at FCS call site** |
+| Official documentation | — | **No FlashMemory/FCS warning added** |
+| Commit history search (both repos) | — | **Zero mutex/FCS-flash fix attempts ever recorded** |
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-02 (fourth 6-hour run).**
+
+---
+
+### Sources Added (Update 2026-05-02, Update 4)
+- Forum thread #4748 (VOE WARN slot full — 403-blocked, newly surfaced): https://forum.amebaiot.com/t/voe-warn-slot-full/4748
+- ameba-arduino-pro2 commit-history search for FlashMemory+mutex (0 results): https://github.com/Ameba-AIoT/ameba-arduino-pro2/search?q=FlashMemory+mutex&type=commits
+- ameba-rtos-pro2 commit-history search for FCS+flash (0 results): https://github.com/Ameba-AIoT/ameba-rtos-pro2/search?q=FCS+flash&type=commits
