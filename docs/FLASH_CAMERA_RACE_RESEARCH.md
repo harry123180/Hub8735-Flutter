@@ -1581,3 +1581,64 @@ The bug is completely absent from all official Realtek/Ameba documentation as of
 - ameba-rtos-pro2 ftl_nor_api.c (commented-out nor_info->ftl_mutex): https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/file_system/ftl_common/ftl_nor_api.c
 - ameba-rtos-pro2 platform_opts.h (CONFIG_LOG_SERVICE_LOCK=0, FLASH_APP_BASE=0xF64000): https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/project/realtek_amebapro2_v0_example/inc/platform_opts.h
 - ameba-arduino-doc Getting Started RST (no FlashMemory/FCS warning): https://github.com/Ameba-AIoT/ameba-arduino-doc/blob/main/source/ameba_pro2/amb82-mini/Getting_Started/Getting%20Started%20with%20Ameba.rst
+
+---
+
+## Research Update — 2026-05-02
+
+### Finding 70 — Commit 687a4c7: ISP OSD + ToF Sensor Example (May 1, 2026); Previously Undocumented; Not a Fix
+**Source:** `ameba-rtos-pro2` — commit `687a4c7` (May 1, 2026), author PLSHHH  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/687a4c7  
+**Priority:** LOW — New example only; no FCS/mutex fix; `video_get_fcs_info()` call is a diagnostic read, not a write
+
+Commit `687a4c7` ("[amebapro2][isp] add isp osd with tof sensor example") was pushed to `ameba-rtos-pro2/main` on May 1, 2026 but was **not captured in any prior research finding**. It adds a new example that overlays ToF (time-of-flight) sensor distance data as OSD (on-screen display) onto a video stream. Files changed:
+
+- `readme.txt` (+24/-2)
+- `scenario.cmake` (+21)
+- `main.c` (+154/-74) — includes `video_api.h`, `video_boot.h`, calls `video_get_fcs_info()`
+- `mmf2_pro2_video_config.h` (new, +68)
+- `tof_sens_example_dist_array_init.c` — distance array display
+- `tof_sens_example_osd_init.c` — OSD overlay
+
+The reference to `video_get_fcs_info()` confirms that a public API function exists for reading FCS state at runtime. However, this commit makes **no changes** to `FlashMemory.cpp`, `ftl_nor_api.c`, `video_api.c`, `device_lock.h`, or any mutex-related file. It is a new peripheral example, not a bug fix.
+
+This brings the confirmed May 1, 2026 ameba-rtos-pro2 commit set to six entries (previously only five were documented):
+1. `d54e1a8` — VOE 1.7.1.0 (Finding 56)
+2. `7b2b97f` — IMX681 5M (Finding 57)
+3. `63c0a2f` — OV12890 IQ (Finding 58)
+4. `2b8812c` — libarduino_tool (Finding 51, Apr 30)
+5. `1c1c8b7` — WLAN dhcp sync (Finding 60)
+6. **`687a4c7`** — ISP OSD + ToF sensor example ← **new, previously undocumented**
+
+---
+
+### Finding 71 — Complete Status Sweep: Bug Unpatched as of 2026-05-02
+**Source:** Exhaustive sweep of all tracked sources (2026-05-02, 6-hour cycle)  
+**Priority:** LOW — Status confirmation
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | April 30, 2026 (Pre Release 4.1.1) | **No new commits** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (April 30, 2026 internal build) | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — 6 commits total (Finding 70 fills last gap) | **No FCS/mutex fix** |
+| ameba-arduino-pro2 pull requests | 0 open | **No fix under review** |
+| ameba-arduino-pro2 issues | ~12 open (some issues closed since Apr 30) | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open | **Zero new relevant issues** |
+| ideashatch/HUB-8735 issues | Issue #10 (Aug 2025) | **Inactive; no new issues** |
+| forum.amebaiot.com | All threads 403-blocked; Google snippets show no new FCS/boot-failure threads | **No new accessible content** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports** |
+| bbs.aithinker.com (BW21-CBV) | — | BW21-CBV forum posts are all non-bug projects (DIY cameras, RTSP, home automation); **no FCS/flash bug threads** |
+| wildman8606/HUB-8735-AMB82-Mini-AmebaPro2-tutorial | May 2023 | Educational YOLO tutorial only; **no FCS bug documentation** |
+| FlashMemory.cpp (dev) | Sept 30, 2025 | **Still NO mutex fix — confirmed** |
+| video_api.c (main) | March 3, 2026 | **Still NO mutex fix at call site — confirmed** |
+| Official Ameba documentation | — | **No warning added; bug completely undocumented** |
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-02.**
+
+---
+
+### Sources Added (Update 2026-05-02)
+- ameba-rtos-pro2 commit 687a4c7 (ISP OSD + ToF sensor example, previously undocumented May 1 commit): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commit/687a4c7
+- wildman8606/HUB-8735-AMB82-Mini-AmebaPro2-tutorial (educational repo, no FCS bug docs): https://github.com/wildman8606/HUB-8735-AMB82-Mini-AmebaPro2-tutorial
+- ameba-arduino-pro2 issues (confirmed no new FCS issues): https://github.com/Ameba-AIoT/ameba-arduino-pro2/issues
+- ideashatch/HUB-8735 issues (confirmed still only issue #10): https://github.com/ideashatch/HUB-8735/issues
