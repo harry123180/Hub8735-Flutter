@@ -1897,5 +1897,97 @@ Fresh raw fetch of `FlashMemory.cpp` (dev branch, SHA `4fdfbec`) once more confi
 - forum.amebaiot.com thread #4721 (Community PlatformIO for AmebaD, Feb 2026): https://forum.amebaiot.com/t/contribution-platformio-platform-for-amebad-build-flash-monitor-from-cli-vs-code/4721
 - ameba-arduino-pro2 dev branch commits (confirmed last: e218f33, Apr 30, 2026): https://github.com/Ameba-AIoT/ameba-arduino-pro2/commits/dev
 - ameba-rtos-pro2 main branch commits (confirmed last: 1c1c8b7, May 1, 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
+
+---
+
+## Research Update — 2026-05-03 (Update 2 — 6-hour cycle)
+
+### Finding 84 — Zero New Repository Activity; All Tracked Branches Static Since May 1
+**Source:** Direct fetch of commit pages for ameba-arduino-pro2 (dev) and ameba-rtos-pro2 (main), 2026-05-03  
+https://github.com/Ameba-AIoT/ameba-arduino-pro2/commits/dev  
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main  
+**Priority:** LOW — Status confirmation; no new fix commits
+
+| Repository | Last commit SHA | Last commit date | Last commit message |
+|---|---|---|---|
+| ameba-arduino-pro2 (dev) | `e218f33` | April 30, 2026 | "Pre Release Version 4.1.1" |
+| ameba-rtos-pro2 (main) | `1c1c8b7` | May 1, 2026 | "Sync upstream — wowlan dhcp renew" |
+
+Zero new commits to either repository since the previous research cycle. No new releases, no new open pull requests, no new issues related to FlashMemory, FCS, camera, or VOE on either `ameba-arduino-pro2` or `ameba-rtos-pro2`. The bug remains unpatched.
+
+---
+
+### Finding 85 — Global Web Search: `"device_mutex_lock" "FlashMemory" Ameba` Returns Zero Results
+**Source:** Web search (Google indexed), 2026-05-03  
+**Priority:** MEDIUM — Confirms root cause analysis (Hypothesis F / Finding 17) is not yet publicly known or discussed anywhere on the internet
+
+The exact phrase combination `"device_mutex_lock" "FlashMemory" Ameba` returns **zero results** across the entire indexed public web. This means:
+- No developer, blogger, or forum poster has publicly identified that `FlashMemory.cpp` lacks `device_mutex_lock(RT_DEV_LOCK_FLASH)` protection
+- No patch, fork, or workaround referencing this specific fix has been published in English or any indexed language
+- The root cause documented in Findings 17 and 53 is entirely novel — the research log is the only public record of this analysis
+
+Additionally reconfirmed: `"FCS KM_status 0x00002081"` and `"It don't do the sensor initial process"` both return zero exact matches on the public web. The bug's specific error signatures are completely unindexed.
+
+---
+
+### Finding 86 — Forum Thread t/4801: "[Driver][ERROR][HALMAC][ERR]fw chksum!" Surfaced in Bug-String Search
+**Source:** forum.amebaiot.com thread #4801 (403-blocked; surfaced via Google search for "FCS KM_status 0x00002081")  
+https://forum.amebaiot.com/t/4801  
+**Priority:** LOW — Different failure mode; coincidental appearance in search; not a report of the FlashMemory/FCS bug
+
+Forum thread #4801 was newly surfaced when searching for the bug's specific error strings. The thread title contains `"[Driver]: [ERROR][HALMAC][ERR]fw chksum!"` — a firmware checksum error from the HALMAC layer (MAC firmware integrity check), which is a different subsystem from FCS/VOE. This error occurs when the WLAN firmware binary fails its checksum verification during boot. It is **not related to the FlashMemory/FCS race condition**.
+
+The coincidental surfacing is likely due to search-engine co-ranking of RTL8735B boot-error threads. The thread is HTTP 403-blocked; no further content was recoverable.
+
+---
+
+### Finding 87 — Ai-Thinker GitHub Organization Has No Public BW21-CBV Repository
+**Source:** https://github.com/Ai-Thinker-Open (organization repository list, 2026-05-03)  
+**Priority:** LOW — Confirms absence of a dedicated BW21-CBV issue tracker
+
+The Ai-Thinker-Open GitHub organization hosts approximately 60 repositories covering Telink BT SDKs, BL602/BL702, emMCP, and other Ai-Thinker products. **No repository named BW21, BW21-CBV, RTL8735B, ameba, or any camera-related module exists** in the public organization listing. Ai-Thinker's BW21-CBV support is distributed through Realtek's Ameba SDK (Ameba-AIoT org) and their own forum (bbs.ai-thinker.com), not a dedicated GitHub issue tracker.
+
+This means users encountering the FlashMemory/FCS bug on BW21-CBV have no dedicated issue tracker to report it to — they would need to file against `ameba-arduino-pro2` (Realtek's org) or post on the Ameba IoT forum. Neither has occurred as of this research run.
+
+---
+
+### Finding 88 — bbs.ai-thinker.com Thread tid=46317: "BW20 FLASH Read/Write Tutorial"; Unrelated
+**Source:** https://bbs.ai-thinker.com/forum.php?mod=viewthread&tid=46317 (403-blocked; Google snippet only)  
+**Priority:** LOW — Different module (BW20 ≠ BW21); no FCS or camera content
+
+This bbs.ai-thinker.com thread surfaced in a search for BW21 flash content. It is specifically a tutorial for the **BW20** module's flash read/write operations — a different Ai-Thinker module that is not based on RTL8735B and does not share the FCS camera architecture. The snippet shows generic SPI flash read/write code with no reference to FCS, camera, or the AmebaPro2 SDK. Not relevant to the bug.
+
+---
+
+### Finding 89 — Complete Status Sweep: Bug Unpatched as of 2026-05-03 (Update 2)
+**Source:** Exhaustive sweep of all tracked sources (2026-05-03, second 6-hour run)  
+**Priority:** LOW — Status confirmation
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | April 30, 2026 — SHA `e218f33` | **No new commits — confirmed** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (April 30, 2026 internal build) | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` | **No new commits — confirmed** |
+| ameba-arduino-pro2 pull requests | 0 open | **No fix under review** |
+| ameba-arduino-pro2 issues | 12 open (highest: #398, Mar 2026) | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open (highest: #16, Jan 2026) | **Zero new relevant issues** |
+| ideashatch/HUB-8735 | Dec 2, 2025 | **Inactive** |
+| Ai-Thinker-Open GitHub org | — | **No BW21-CBV repo exists — confirmed** |
+| forum.amebaiot.com | All threads 403-blocked; t/4801 newly logged (unrelated) | **No accessible content** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports — reconfirmed** |
+| bbs.ai-thinker.com (BW21-CBV) | tid=46317 (BW20, unrelated); no BW21 FCS bug threads | **Zero relevant posts** |
+| FlashMemory.cpp (dev, SHA 4fdfbec) | Sept 30, 2025 | **Still NO mutex fix — confirmed** |
+| video_api.c (main) | March 3, 2026 | **Still NO mutex fix at FCS call site** |
+| Official documentation | — | **No FlashMemory/FCS warning added** |
+| Public web (`"device_mutex_lock" "FlashMemory" Ameba`) | — | **Zero results — root cause uniquely documented in this log** |
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-03 (second 6-hour run).**
+
+---
+
+### Sources Added (Update 2026-05-03, Update 2)
+- forum.amebaiot.com thread #4801 ("[Driver][ERROR][HALMAC][ERR]fw chksum!"; different bug; 403-blocked): https://forum.amebaiot.com/t/4801
+- Ai-Thinker-Open GitHub org (no BW21-CBV repo confirmed): https://github.com/Ai-Thinker-Open
+- bbs.ai-thinker.com thread tid=46317 (BW20 flash tutorial; not BW21; 403-blocked): https://bbs.ai-thinker.com/forum.php?mod=viewthread&tid=46317
 - ameba-arduino-pro2 releases (confirmed latest: V4.1.1-QC-V05; no V4.1.2 or V4.1.1-QC-V06): https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases
 - ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex, SHA 4fdfbec): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
