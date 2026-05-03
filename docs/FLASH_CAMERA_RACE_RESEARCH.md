@@ -1902,6 +1902,80 @@ Fresh raw fetch of `FlashMemory.cpp` (dev branch, SHA `4fdfbec`) once more confi
 
 ## Research Update — 2026-05-03 (Update 2 — 6-hour cycle)
 
+### Finding 84 — All Repositories Unchanged Since Previous Cycle; No Fix Found
+**Source:** Direct fetches of ameba-rtos-pro2/commits/main, ameba-arduino-pro2/commits/dev, both issues pages, both releases pages (2026-05-03 second run)
+**Priority:** LOW — Status confirmation; no new information
+
+Complete status sweep for May 3, 2026 (second 6-hour run):
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | April 30, 2026 — SHA `e218f33` ("Pre Release Version 4.1.1") | **No new commits — re-confirmed** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (April 30, 2026 internal build); no V4.1.1-QC-V06 or V4.1.2 tag exists | **No new release — re-confirmed** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` (WLAN dhcp sync) | **No new commits — re-confirmed by direct fetch** |
+| ameba-arduino-pro2 pull requests | 0 open | **No fix under review** |
+| ameba-arduino-pro2 issues | 12 open; highest: #398 (Mar 29, 2026). **No new issues above #398** | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open; highest: #16 (Jan 27, 2026) | **Zero new relevant issues — re-confirmed** |
+| ideashatch/HUB-8735 issues | Issue #10 only (Aug 2025) | **Inactive; no new issues** |
+| forum.amebaiot.com | All threads 403-blocked; highest indexed thread in this run: #4834 (previously documented). No new FCS/camera-bug threads found in Google index | **No new accessible content** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports** |
+| bbs.ai-thinker.com (BW21-CBV) | — | **No FCS/camera bug threads (see Finding 85)** |
+| FlashMemory.cpp (dev, SHA 4fdfbec) | Sept 30, 2025 | **Still NO mutex fix — re-confirmed by direct raw fetch** |
+| video_api.c (main) | March 3, 2026 | **Still NO mutex fix at FCS call site** |
+| Official documentation | — | **No FlashMemory/FCS warning added** |
+
+Direct raw fetch of `FlashMemory.cpp` (dev branch) once more confirms: zero `device_mutex_lock` calls, zero `device_lock.h` includes. `write()` and `writeWord()` bodies are unchanged from SHA `4fdfbec` (September 30, 2025).
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-03 (second 6-hour run).**
+
+---
+
+### Finding 85 — bbs.ai-thinker.com Thread #47062: New BW21-CBV-KIt Unboxing Thread (Higher tid than Previously Documented)
+**Source:** Google search results for bbs.ai-thinker.com BW21-CBV; thread URL https://bbs.ai-thinker.com/forum.php?mod=viewthread&tid=47062
+**Priority:** LOW — New community content; no FCS bug relevance
+
+Thread `tid=47062` ("BW21-CBV-KIt开箱") is the highest-numbered BW21-CBV thread observed on bbs.ai-thinker.com in this research cycle. The previously documented highest thread was `tid=46140` ("BW21-CBV-Kit调试"). The new thread (#47062) is an unboxing and first-impressions post. The thread content (accessed via Google-indexed snippet) discusses basic board impressions and setup; it contains no mention of flash write errors, FCS camera failures, VOE initialization problems, or cold-boot camera issues.
+
+The numbering gap (46140 → 47062 = ~922 posts/threads) indicates continued board activity on the AI-Thinker forum. Despite this volume of community activity on the BW21-CBV platform, **zero threads on bbs.ai-thinker.com have reported the FlashMemory/FCS camera bug** as of 2026-05-03. This likely reflects that most BW21-CBV users operate with FCS mode disabled (the default) or have not combined FlashMemory writes with active camera streaming.
+
+---
+
+### Finding 86 — ameba-arduino-doc Last Commit: April 16, 2026 — No FCS/FlashMemory Warnings Added
+**Source:** https://github.com/Ameba-AIoT/ameba-arduino-doc/commits/main (fetched 2026-05-03)
+**Priority:** LOW — Documentation status confirmed; bug remains completely undocumented
+
+The most recent commit to the `ameba-arduino-doc` repository (the official documentation source for the Arduino SDK) is dated **April 16, 2026**: "Update PowerMode documentation #104". No subsequent commits exist as of this run. This confirms that no FlashMemory/FCS compatibility warning, no "known issues" entry, and no "camera FCS mode + FlashMemory" advisory has been added to the official documentation in the entire period covered by this research log (April 28 – May 3, 2026). The documentation remains silent on the interaction between `FlashMemory.write()` and Camera FCS Mode.
+
+---
+
+### Finding 87 — Forum Threads #4820 and #4794 Newly Surfaced; Unrelated to Bug
+**Source:** Google search results; forum.amebaiot.com threads #4820 and #4794 (both 403-blocked)
+**Priority:** LOW — New threads logged; no FCS bug relevance
+
+Two previously unlogged forum threads surfaced in search results for this cycle:
+
+- **Thread #4820**: "AMB82-mini upload issue" — title indicates a firmware upload/programming problem, not a camera FCS boot issue. Content inaccessible (403-blocked).
+- **Thread #4794**: "RTL8735B Fast-Ethernet Interface is fully functional or not?" — clearly a hardware capability question about the Ethernet peripheral, unrelated to flash or camera. Content inaccessible (403-blocked).
+
+Both threads have lower numbers than thread #4834 ("Boot failure after OTA update", already documented in Finding 42), confirming thread numbers track chronological order and neither is newer than the April 2026 activity already documented. These two threads do not contain new FCS/FlashMemory bug information.
+
+---
+
+### Sources Added (Update 2026-05-03, Update 2)
+- ameba-arduino-pro2 issues page (confirmed highest open: #398, Mar 2026; no new issues above #398): https://github.com/Ameba-AIoT/ameba-arduino-pro2/issues
+- ameba-arduino-pro2 releases page (confirmed no V4.1.1-QC-V06 or V4.1.2 exists): https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases
+- ameba-rtos-pro2 commits/main (re-confirmed last: 1c1c8b7, May 1, 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
+- ameba-rtos-pro2 issues (confirmed 3 open; highest: #16, Jan 2026; no new issues): https://github.com/Ameba-AIoT/ameba-rtos-pro2/issues
+- ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex, SHA 4fdfbec, write()/writeWord() unchanged): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
+- ameba-arduino-doc commits/main (last: Apr 16, 2026, "Update PowerMode documentation #104"; no FCS/FlashMemory docs): https://github.com/Ameba-AIoT/ameba-arduino-doc/commits/main
+- bbs.ai-thinker.com BW21-CBV thread #47062 (new unboxing thread; no FCS bug content): https://bbs.ai-thinker.com/forum.php?mod=viewthread&tid=47062
+- forum.amebaiot.com thread #4820 (AMB82-mini upload issue, 403-blocked): https://forum.amebaiot.com/t/amb82-mini-upload-issue/4820
+- forum.amebaiot.com thread #4794 (RTL8735B Fast-Ethernet question, 403-blocked): https://forum.amebaiot.com/t/rtl8735b-fast-ethernet-interface-is-fully-functional-or-not/4794
+
+---
+
+## Research Update — 2026-05-03 (Update 2 — 6-hour cycle)
+
 ### Finding 84 — Zero New Repository Activity; All Tracked Branches Static Since May 1
 **Source:** Direct fetch of commit pages for ameba-arduino-pro2 (dev) and ameba-rtos-pro2 (main), 2026-05-03  
 https://github.com/Ameba-AIoT/ameba-arduino-pro2/commits/dev  
