@@ -1823,3 +1823,79 @@ Two exhaustive searches of the complete commit histories of both repositories co
 - Forum thread #4748 (VOE WARN slot full — 403-blocked, newly surfaced): https://forum.amebaiot.com/t/voe-warn-slot-full/4748
 - ameba-arduino-pro2 commit-history search for FlashMemory+mutex (0 results): https://github.com/Ameba-AIoT/ameba-arduino-pro2/search?q=FlashMemory+mutex&type=commits
 - ameba-rtos-pro2 commit-history search for FCS+flash (0 results): https://github.com/Ameba-AIoT/ameba-rtos-pro2/search?q=FCS+flash&type=commits
+
+---
+
+## Research Update — 2026-05-03
+
+### Finding 81 — CORRECTION to Finding 78: Thread #4748 Is "Need Latest VOE and Sensor Drivers Source Code" — Not Slot-Full
+**Source:** Google search result confirming thread title; forum.amebaiot.com thread #4748 (403-blocked for full content)
+https://forum.amebaiot.com/t/need-latest-voe-and-sensor-drivers-source-code/4748
+**Priority:** MEDIUM — Factual correction; removes an overestimated indicator of bug prevalence
+
+Finding 78 (2026-05-02 Update 4) incorrectly identified forum thread #4748 as being titled "[VOE][WARN]slot full" and as a potential independent report of the FlashMemory/FCS race bug's slot-full symptom. The confirmed title, per Google-indexed search snippets and the URL slug, is:
+
+**"Need latest VOE and Sensor drivers source code"**
+
+The thread (dated February 23, 2026) discusses a user's request to download the VOE binary and sensor driver source code to recompile `voe.bin` and `sensor_f37.bin`. It appears to be unrelated to the FlashMemory/FCS cold-boot failure. The page remains HTTP 403-blocked, so the full content cannot be verified, but the title and URL slug provide no indication of cold-boot camera failure.
+
+**Consequence:** Finding 78's conclusion that "at least two independent reporters have encountered the `slot full` symptom" should be retracted. Thread #4748 is not an independent symptom report. Thread #4777 ("AMB82-Mini onboard camera sensor identification and VOE setup for wireless video and I2C") remains the only separately indexed thread that co-occurs with VOE setup, but it is also 403-blocked with no confirmed fault log snippet.
+
+The corrected URL for Finding 78's source entry should be:
+- Forum thread #4748 (Need latest VOE and Sensor drivers source code — Feb 23, 2026; unrelated to bug): https://forum.amebaiot.com/t/need-latest-voe-and-sensor-drivers-source-code/4748
+
+---
+
+### Finding 82 — PlatformIO AMB82-Mini Board Support Requests: Two Open Issues; No FCS Mention
+**Source:** GitHub: platformio/platformio-core issues #4809 and #4855
+https://github.com/platformio/platformio-core/issues/4809
+https://github.com/platformio/platformio-core/issues/4855
+**Priority:** LOW — New distribution channel that would expose the buggy API; no fix relevant content
+
+Two separate PlatformIO Core issues exist requesting AMB82-Mini (RTL8735B) board support in PlatformIO:
+- Issue #4809 (December 18, 2023) — "Board Support: REALTEK AMB82-Mini" — links to Seeed Studio product page only; no technical content.
+- Issue #4855 — "Feature Request: Support RealTek Ameba AMB82-Mini board (RTL8735BDM)" — similarly a bare feature request.
+
+Neither issue references FlashMemory, FCS mode, VOE, or camera initialization. **No PlatformIO platform for AMB82-Mini has been officially created.**
+
+However, a separate community thread on forum.amebaiot.com (#4721, "Contribution: PlatformIO Platform for AmebaD", February 11, 2026) describes a community-built PlatformIO integration for the AmebaD family. If a similar community integration is built for AMB82-Mini (RTL8735B), it would bundle the same unpatched `FlashMemory.cpp` and expose the FlashMemory/FCS race bug to VS Code / PlatformIO users — a broader audience than Arduino IDE alone.
+
+---
+
+### Finding 83 — Complete Status Sweep: Bug Unpatched as of 2026-05-03
+**Source:** Exhaustive sweep of all tracked sources (2026-05-03 run)
+**Priority:** LOW — Status confirmation
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | April 30, 2026 — SHA `e218f33` ("Pre Release Version 4.1.1") | **No new commits** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (April 30, 2026 internal build); no V4.1.1-QC-V06 or V4.1.2 tag found | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` (WLAN dhcp sync) | **No new commits** |
+| ameba-arduino-pro2 pull requests | 0 open | **No fix under review** |
+| ameba-arduino-pro2 issues | 12 open (highest: #398, Mar 2026) | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open (highest: #16, Jan 2026) | **Zero new relevant issues** |
+| ideashatch/HUB-8735 | Dec 2, 2025 | **Inactive** |
+| forum.amebaiot.com | All threads 403-blocked; no new Google-indexed snippets for bug-signature strings | **No new accessible content** |
+| forum.amebaiot.com highest indexed thread | ~#4840 | **No new FCS/flash/camera threads beyond previously documented** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports (re-confirmed)** |
+| bbs.ai-thinker.com (BW21-CBV) | Various BW21 projects; no FCS bug threads | **Zero FCS/flash camera bug posts** |
+| FlashMemory.cpp (dev, SHA 4fdfbec) | Sept 30, 2025 | **Still NO mutex fix — confirmed by direct raw fetch** |
+| video_api.c (main) | March 3, 2026 | **Still NO mutex fix at FCS call site** |
+| Official documentation | — | **No FlashMemory/FCS warning added** |
+| Commit history (both repos, full) | — | **Zero mutex/FCS-flash fix attempts recorded** |
+
+Fresh raw fetch of `FlashMemory.cpp` (dev branch, SHA `4fdfbec`) once more confirms the `write()` and `writeWord()` functions contain zero `device_mutex_lock` calls, zero `device_lock.h` includes. The bug is confirmed unpatched.
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-03.**
+
+---
+
+### Sources Added (Update 2026-05-03)
+- Forum thread #4748 (CORRECTED title — "Need latest VOE and Sensor drivers source code", Feb 2026; unrelated to bug): https://forum.amebaiot.com/t/need-latest-voe-and-sensor-drivers-source-code/4748
+- platformio-core issue #4809 (AMB82-Mini board support request, Dec 2023): https://github.com/platformio/platformio-core/issues/4809
+- platformio-core issue #4855 (AMB82-Mini board support request): https://github.com/platformio/platformio-core/issues/4855
+- forum.amebaiot.com thread #4721 (Community PlatformIO for AmebaD, Feb 2026): https://forum.amebaiot.com/t/contribution-platformio-platform-for-amebad-build-flash-monitor-from-cli-vs-code/4721
+- ameba-arduino-pro2 dev branch commits (confirmed last: e218f33, Apr 30, 2026): https://github.com/Ameba-AIoT/ameba-arduino-pro2/commits/dev
+- ameba-rtos-pro2 main branch commits (confirmed last: 1c1c8b7, May 1, 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
+- ameba-arduino-pro2 releases (confirmed latest: V4.1.1-QC-V05; no V4.1.2 or V4.1.1-QC-V06): https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases
+- ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex, SHA 4fdfbec): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
