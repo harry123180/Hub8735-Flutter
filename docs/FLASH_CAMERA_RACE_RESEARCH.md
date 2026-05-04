@@ -2135,3 +2135,104 @@ Note: The symmetric fix in `FlashMemory.cpp` (Arduino SDK) would also require ad
 - ameba-rtos-pro2 video_api.c main (confirmed `#include "device_lock.h"` present; FCS write site still unguarded): https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c
 - ameba-arduino-pro2 dev branch HEAD confirmed identical to e218f33: https://github.com/Ameba-AIoT/ameba-arduino-pro2/compare/e218f33...HEAD
 - ameba-rtos-pro2 main HEAD confirmed identical to 1c1c8b7: https://github.com/Ameba-AIoT/ameba-rtos-pro2/compare/1c1c8b7...HEAD
+
+---
+
+## Research Update — 2026-05-04 (Update 2 — 6-hour cycle)
+
+### Finding 92 — ameba-arduino-pro2 Open Issues Count Now Shows 17 (Up from 12); Highest Issue Still #398
+**Source:** https://github.com/Ameba-AIoT/ameba-arduino-pro2/issues  
+**Priority:** LOW — Count change does not reflect new FCS/FlashMemory bug reports
+
+The issues page for `ameba-arduino-pro2` now displays **17 open issues** in the tab counter. Previous research cycles documented 11–12 open issues. However, the **highest-numbered open issue remains #398** ("FEATURE REQUEST: Access to raw video or H264/H265 encoded data," March 29, 2026). Since GitHub issues are numbered sequentially, no new issues have been filed after #398. The count increase from 12 to 17 reflects previously-closed issues that were re-opened (or a prior miscounting of paginated results) rather than newly filed reports.
+
+The 11 visible open issues continue to focus on video streaming, WiFi, USB, audio, and protocol features — **zero relate to FlashMemory, FCS, camera boot failure, VOE errors, device_mutex_lock, or flash-camera interaction**.
+
+---
+
+### Finding 93 — All Tracked Repositories Unchanged Since Previous Cycle; No Fix Found
+**Source:** Direct fetches of ameba-rtos-pro2/commits/main and ameba-arduino-pro2/commits/dev (2026-05-04, second run)  
+**Priority:** LOW — Status confirmation; no new fix commits
+
+Both repositories are static since the previous documented activity:
+
+| Repository | Last commit SHA | Last commit date | Message |
+|---|---|---|---|
+| ameba-arduino-pro2 (dev) | `e218f33` | April 30, 2026 | "Pre Release Version 4.1.1" |
+| ameba-rtos-pro2 (main) | `1c1c8b7` | May 1, 2026 | "Sync upstream — wowlan dhcp renew" |
+
+Zero new commits to either repository. No new releases (latest: V4.1.1-QC-V05, internal build April 30, 2026). No open pull requests on `ameba-arduino-pro2`. No fix is in progress or under review in any public channel.
+
+---
+
+### Finding 94 — Exhaustive Web Search: No New Public Reports, Articles, or Fixes in Any Language
+**Source:** Web searches (Google indexed, May 4, 2026) — English and Chinese  
+**Priority:** LOW — Confirms continued public ignorance of the bug
+
+Searches conducted and results:
+
+| Query | Result |
+|---|---|
+| `ameba-arduino-pro2 FlashMemory FCS camera fix 2026` | Zero new relevant hits; all results from April 2026 or earlier |
+| `RTL8735B VOE_OPEN_CMD fail FCS flash camera boot 2026` | Zero new hits; same previously-documented forum threads |
+| `AMB82 "slot full" OR "VOE_OPEN_CMD" OR "FCS KM_status" camera flash 2026` | Zero new hits |
+| `RTL8735B flash 写入 摄像头启动失败 FCS 冷启动 CSDN 2026` | Zero Chinese-language results |
+| `AmebaPro2 RTL8735B FlashMemory fix patch mutex commit May 2026` | Zero results; no patch or fix commit found |
+| `AMB82 FlashMemory FCS camera "device_mutex_lock" OR "RT_DEV_LOCK_FLASH" workaround fix` | Zero results |
+
+The exact bug-signature strings `"It don't do the sensor initial process"` and `"FCS KM_status 0x00002081"` continue to return **zero indexed results** on the public web. The root cause analysis documented in this log (Hypothesis F — `FlashMemory.cpp` bypasses `RT_DEV_LOCK_FLASH`) remains the only public record of this analysis anywhere on the internet.
+
+---
+
+### Finding 95 — ideashatch/HUB-8735 and ameba-rtos-pro2: Still No New Issues
+**Source:** https://github.com/ideashatch/HUB-8735/issues and https://github.com/Ameba-AIoT/ameba-rtos-pro2/issues (fetched 2026-05-04)  
+**Priority:** LOW — Status confirmation
+
+- **ideashatch/HUB-8735**: Only one open issue (#10 — PS5268 sensor ID fail, August 2025). No new issues.
+- **ameba-rtos-pro2**: 3 open issues (highest: #16, January 2026, "Unable to access source folder"). No new issues. No issues related to FlashMemory, FCS, mutex, camera boot, or VOE.
+
+---
+
+### Finding 96 — No New Forum Threads Accessible; Thread #4834 Remains Highest Adjacent Thread
+**Source:** forum.amebaiot.com (403-blocked); Google-indexed search snippets (2026-05-04)  
+**Priority:** LOW — Status confirmation
+
+All forum.amebaiot.com threads remain HTTP 403-blocked. The highest forum thread with adjacent content previously documented is #4834 ("Boot failure after OTA update" — a different flash-detection failure, not the FCS race). A search for `AmebaPro2 AMB82 FlashMemory camera cold boot failure fix workaround site:forum.amebaiot.com` returned no new threads mentioning the bug. Thread #4777 ("AMB82-Mini onboard camera sensor identification and VOE setup for wireless video and I2C"), the most recently indexed thread adjacent to camera setup concerns, contains no accessible content.
+
+No new forum threads matching the bug's error strings or symptoms have been indexed since the last research cycle.
+
+---
+
+### Complete Status Sweep — 2026-05-04 (Update 2)
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | April 30, 2026 — SHA `e218f33` | **No new commits — confirmed** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (April 30, 2026 internal build) | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` | **No new commits — confirmed** |
+| ameba-arduino-pro2 pull requests | 0 open | **No fix under review** |
+| ameba-arduino-pro2 issues | 17 open total; highest: #398 (Mar 29, 2026) | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open; highest: #16 (Jan 2026) | **Zero new relevant issues** |
+| ideashatch/HUB-8735 | Dec 2, 2025 — SHA `870a7e0` | **Inactive; only issue #10 (Aug 2025)** |
+| Ai-Thinker-Open GitHub org | — | **No BW21-CBV repository** |
+| forum.amebaiot.com | All threads 403-blocked; no new Google snippets for bug strings | **No new accessible content** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports — reconfirmed** |
+| bbs.ai-thinker.com (BW21-CBV) | — | **No camera/FCS bug threads — reconfirmed** |
+| FlashMemory.cpp (dev, SHA 4fdfbec) | Sept 30, 2025 | **Still NO mutex fix — confirmed by direct fetch** |
+| video_api.c (main) | March 3, 2026 | **Still NO mutex fix at FCS call site** |
+| Official documentation (ameba-arduino-doc) | April 16, 2026 | **No FlashMemory/FCS warning added** |
+| Public web (`"It don't do the sensor initial process"`) | — | **Zero new indexed results** |
+| Public web (`"FCS KM_status 0x00002081"`) | — | **Zero new indexed results** |
+| Public web (`"device_mutex_lock" "FlashMemory" Ameba`) | — | **Zero results — root cause uniquely in this log** |
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-04 (second 6-hour run).**
+
+---
+
+### Sources Added (Update 2026-05-04, Update 2)
+- ameba-arduino-pro2 issues (17 open total; highest: #398 Mar 2026; no new FCS issues): https://github.com/Ameba-AIoT/ameba-arduino-pro2/issues
+- ameba-rtos-pro2 issues (3 open; highest: #16 Jan 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/issues
+- ideashatch/HUB-8735 issues (only issue #10 Aug 2025): https://github.com/ideashatch/HUB-8735/issues
+- ameba-arduino-pro2 commits/dev (re-confirmed last: e218f33, Apr 30, 2026): https://github.com/Ameba-AIoT/ameba-arduino-pro2/commits/dev
+- ameba-rtos-pro2 commits/main (re-confirmed last: 1c1c8b7, May 1, 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
+- ameba-arduino-pro2 releases (re-confirmed latest: V4.1.1-QC-V05, no new tag): https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases
