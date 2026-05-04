@@ -2065,3 +2065,73 @@ This bbs.ai-thinker.com thread surfaced in a search for BW21 flash content. It i
 - bbs.ai-thinker.com thread tid=46317 (BW20 flash tutorial; not BW21; 403-blocked): https://bbs.ai-thinker.com/forum.php?mod=viewthread&tid=46317
 - ameba-arduino-pro2 releases (confirmed latest: V4.1.1-QC-V05; no V4.1.2 or V4.1.1-QC-V06): https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases
 - ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex, SHA 4fdfbec): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
+
+---
+
+## Research Update — 2026-05-04
+
+### Finding 90 — video_api.c Already `#include "device_lock.h"` — Fix Is a Two-Line Wrapper with Zero New Headers
+**Source:** `ameba-rtos-pro2/main` — `video_api.c` (fresh fetch, May 4, 2026)
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c
+**Priority:** MEDIUM — New technical detail about fix triviality; not previously documented
+
+A fresh read of `video_api.c` (current main branch) reveals that `device_lock.h` is **already included** at the top of the file:
+
+```c
+#include "device_lock.h"   // already present in video_api.c
+```
+
+This means `device_mutex_lock(RT_DEV_LOCK_FLASH)` and `device_mutex_unlock(RT_DEV_LOCK_FLASH)` are already in scope at the exact call site where `ftl_common_write(flash_addr, fcs_buf, fcs_buf_size)` is invoked. Adding the mutex guard to `video_api.c` would require **no new includes and no new dependencies** — purely:
+
+```c
+// BEFORE (current unguarded state):
+if (ftl_common_write(flash_addr, fcs_buf, fcs_buf_size) >= 0) {
+    video_dprintf(VIDEO_LOG_MSG, "ISP pre init params save success\r\n");
+}
+
+// AFTER (proposed fix — two lines added):
+device_mutex_lock(RT_DEV_LOCK_FLASH);
+if (ftl_common_write(flash_addr, fcs_buf, fcs_buf_size) >= 0) {
+    video_dprintf(VIDEO_LOG_MSG, "ISP pre init params save success\r\n");
+}
+device_mutex_unlock(RT_DEV_LOCK_FLASH);
+```
+
+Note: The symmetric fix in `FlashMemory.cpp` (Arduino SDK) would also require adding `extern "C" { #include "device_lock.h" }` since `FlashMemory.cpp` is C++ and does not currently include `device_lock.h`. The `video_api.c` fix is therefore even simpler (no include change required).
+
+**Significance:** This was not previously documented. It means that from Realtek's internal development perspective, guarding the FCS write in `video_api.c` is a trivially minimal change — the API is already in the translation unit. The omission is not an architectural oversight requiring restructuring; it is a single missing function call pair around one existing statement.
+
+---
+
+### Finding 91 — Complete Status Sweep: Bug Unpatched as of 2026-05-04
+**Source:** Exhaustive sweep of all tracked sources (2026-05-04)
+**Priority:** LOW — Status confirmation
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | April 30, 2026 — SHA `e218f33` ("Pre Release Version 4.1.1") | **No new commits — confirmed** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (April 30, 2026 internal build); no V4.1.1-QC-V06 or V4.1.2 | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` (WLAN dhcp sync); compare `1c1c8b7...HEAD` = identical | **No new commits — confirmed by diff** |
+| ameba-arduino-pro2 pull requests | 0 open | **No fix under review** |
+| ameba-arduino-pro2 issues | 12 open (highest: #398, Mar 2026) | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open (highest: #16, Jan 2026) | **Zero new relevant issues** |
+| ideashatch/HUB-8735 | Dec 2, 2025 — SHA `870a7e0` | **Inactive; no new issues** |
+| Ai-Thinker-Open GitHub org | — | **No BW21-CBV repository exists** |
+| forum.amebaiot.com | All threads 403-blocked | **No new accessible content** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports** |
+| bbs.ai-thinker.com (BW21-CBV) | — | **No camera/FCS bug threads** |
+| FlashMemory.cpp (dev, SHA 4fdfbec) | Sept 30, 2025 | **Still NO mutex fix — confirmed by direct raw fetch** |
+| video_api.c (main) | March 3, 2026 | **Still NO mutex fix at FCS call site — confirmed** |
+| Official documentation (ameba-arduino-doc) | April 16, 2026 | **No FlashMemory/FCS warning added** |
+| Public web (`"It don't do the sensor initial process"`) | — | **Zero new indexed results** |
+| Public web (`"FCS KM_status 0x00002081"`) | — | **Zero new indexed results** |
+| Public web (`"device_mutex_lock" "FlashMemory" Ameba`) | — | **Zero results** |
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-04.**
+
+---
+
+### Sources Added (Update 2026-05-04)
+- ameba-rtos-pro2 video_api.c main (confirmed `#include "device_lock.h"` present; FCS write site still unguarded): https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c
+- ameba-arduino-pro2 dev branch HEAD confirmed identical to e218f33: https://github.com/Ameba-AIoT/ameba-arduino-pro2/compare/e218f33...HEAD
+- ameba-rtos-pro2 main HEAD confirmed identical to 1c1c8b7: https://github.com/Ameba-AIoT/ameba-rtos-pro2/compare/1c1c8b7...HEAD
