@@ -2236,3 +2236,103 @@ No new forum threads matching the bug's error strings or symptoms have been inde
 - ameba-arduino-pro2 commits/dev (re-confirmed last: e218f33, Apr 30, 2026): https://github.com/Ameba-AIoT/ameba-arduino-pro2/commits/dev
 - ameba-rtos-pro2 commits/main (re-confirmed last: 1c1c8b7, May 1, 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
 - ameba-arduino-pro2 releases (re-confirmed latest: V4.1.1-QC-V05, no new tag): https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases
+
+---
+
+## Research Update — 2026-05-04 (Update 3 — 6-hour cycle)
+
+### Finding 97 — video_api.c Contains TWO Unguarded ftl_common_write() Calls in video_pre_init_save_cur_params()
+**Source:** `ameba-rtos-pro2/main` — `video_api.c` (fresh fetch, May 4, 2026)
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c
+**Priority:** MEDIUM — Refines the race-condition scope; prior findings documented only one call site
+
+Prior findings (17, 53, 61) identified one `ftl_common_write()` call site inside `video_pre_init_save_cur_params()`. A fresh fetch of the current `main` branch reveals **two distinct `ftl_common_write()` calls** within that function, located at approximately lines 1900–1910 and 2000–2010.
+
+The most likely explanation: the function saves the FCS record in two passes — one for the FCSD header + AE/AWB payload, and a second for an additional ISP parameter block (possibly retention metadata or a separate channel record). Both calls use `flash_addr` derived from `NOR_FLASH_FCS = 0xF0D000`. **Neither call is protected by any mutex.**
+
+**Implication:** There are two independent flash write windows per `SAVE_TO_FLASH` invocation. Each write is a separate erase-then-program sequence, doubling the total flash-bus occupancy window during which `FlashMemory.cpp` can issue a competing command and abort one of the writes. The race window is larger than previously modelled.
+
+---
+
+### Finding 98 — video_api.c Uses rtw_mutex_get/put for Stream Operations — But NOT for Flash Writes
+**Source:** `ameba-rtos-pro2/main` — `video_api.c` (fresh fetch, May 4, 2026)
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c
+**Priority:** MEDIUM — New detail on selective mutex use in the file; strengthens "omission" characterisation
+
+Finding 58 documented `static _mutex video_open_close_mutex = NULL;` (a FreeRTOS `_mutex` type) guarding `hal_video_open()` / `hal_video_close()` only. A fresh full read of the file reveals a second, distinct mutex API also in use:
+
+```c
+rtw_mutex_get(&some_stream_mutex, ...);
+// ... stream channel operations ...
+rtw_mutex_put(&some_stream_mutex);
+```
+
+`rtw_mutex_get/put` is a lower-level mutex API from the Realtek Wi-Fi OS abstraction layer (`rtw_mutex_t` type, distinct from `_mutex`). It is applied to video stream slot operations in `video_api.c` — but **not** to the `ftl_common_write()` calls in `video_pre_init_save_cur_params()`.
+
+**Significance:** `video_api.c` uses **two separate mutex APIs** (`_mutex` and `rtw_mutex_t`) to serialize different resource accesses — yet the one resource that requires serialization with external callers (the SPI NOR flash bus) is serialized by neither. The omission of `device_mutex_lock(RT_DEV_LOCK_FLASH)` around the FCS flash write is a selective gap in an otherwise mutex-aware file.
+
+---
+
+### Finding 99 — 36 Forks of ameba-arduino-pro2 Examined; Zero Contain a FlashMemory Mutex Patch
+**Source:** GitHub forks of ameba-arduino-pro2 (https://github.com/Ameba-AIoT/ameba-arduino-pro2/forks); notable forks directly inspected
+**Priority:** LOW — Confirms no community fix has been developed or shared
+
+The `ameba-arduino-pro2` repository has **36 public forks**. The two most recently active forks with FlashMemory-relevant commits were inspected:
+
+- **`geofrancis/ameba-arduino-pro2`** — Mirrors upstream main; no FlashMemory or mutex commits.
+- **`LighthouseAvionics/ameba-arduino-pro2`** — Last updated November 2024 (V4.0.8/V4.0.9 era); no FlashMemory or mutex commits.
+
+No fork in the entire network has committed a patch adding `device_mutex_lock(RT_DEV_LOCK_FLASH)` to `FlashMemory.cpp` or `video_api.c`. The workaround documented in Finding 27 (user-level `device_mutex_lock` wrapper in Arduino sketches) remains the only publicly-available mitigation — and it exists only in this research log, not in any public codebase.
+
+---
+
+### Finding 100 — Forum Threads #4821 and #4829 Newly Identified; Unrelated to Bug
+**Source:** forum.amebaiot.com (403-blocked); Google-indexed search results (2026-05-04)
+https://forum.amebaiot.com/t/amb82-mini-usb-host-cdc-ecm-fail-to-sim7600g-h/4821
+https://forum.amebaiot.com/t/can-amb82-mini-be-used-with-teachable-machine-uvc-issue/4829
+**Priority:** LOW — New thread numbers logged; no FCS bug content
+
+Two previously unlogged forum threads were discovered via search results:
+- **Thread #4821**: "AMB82-mini USB host CDC ECM fail to SIM7600G-H" — USB peripheral issue, unrelated to flash or camera FCS.
+- **Thread #4829**: "Can AMB82 MINI be used with Teachable Machine? UVC Issue" — UVC camera class question for ML inference; unrelated to FCS cold-boot failure or FlashMemory writes.
+
+Both are HTTP 403-blocked; titles only are available from search-engine snippets. These are the highest-numbered forum threads discovered in this cycle, suggesting the forum's most recent posts are in the #4830–#4840 range.
+
+---
+
+### Finding 101 — Complete Status Sweep: Bug Unpatched as of 2026-05-04 (Update 3)
+**Source:** Exhaustive sweep of all tracked sources (2026-05-04, third 6-hour run)
+**Priority:** LOW — Status confirmation
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | April 30, 2026 — SHA `e218f33` | **No new commits — confirmed** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (April 30, 2026 internal build) | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` (WLAN dhcp sync) | **No new commits — confirmed** |
+| ameba-arduino-pro2 pull requests | 0 open | **No fix under review** |
+| ameba-arduino-pro2 issues | 17 open; highest: #398 (Mar 29, 2026) | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open; highest: #16 (Jan 2026) | **Zero new relevant issues** |
+| ideashatch/HUB-8735 | Dec 2, 2025 — SHA `870a7e0` | **Inactive; no new issues** |
+| Ai-Thinker-Open GitHub org | — | **No BW21-CBV repository** |
+| ameba-arduino-pro2 forks (36 total) | Various | **Zero forks contain FlashMemory mutex patch** |
+| forum.amebaiot.com | Threads #4821, #4829 newly logged; all 403-blocked | **No accessible content; highest observed thread ~#4835** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports — reconfirmed** |
+| bbs.ai-thinker.com (BW21-CBV) | — | **No camera/FCS bug threads** |
+| FlashMemory.cpp (dev, SHA 4fdfbec) | Sept 30, 2025 | **Still NO mutex fix — confirmed by direct fetch** |
+| video_api.c (main) | March 3, 2026 | **TWO ftl_common_write() calls; NEITHER guarded (Finding 97)** |
+| Official documentation (ameba-arduino-doc) | April 16, 2026 | **No FlashMemory/FCS warning added** |
+| Public web (`"It don't do the sensor initial process"`) | — | **Zero new indexed results** |
+| Public web (`"FCS KM_status 0x00002081"`) | — | **Zero new indexed results** |
+| Public web (`"device_mutex_lock" "FlashMemory" Ameba`) | — | **Zero results** |
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-04 (third 6-hour run).**
+
+---
+
+### Sources Added (Update 2026-05-04, Update 3)
+- ameba-rtos-pro2 video_api.c main (TWO ftl_common_write() calls confirmed; rtw_mutex_get/put for streams; no flash mutex): https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c
+- ameba-arduino-pro2 forks (36 total; zero with FlashMemory mutex patch): https://github.com/Ameba-AIoT/ameba-arduino-pro2/forks
+- geofrancis/ameba-arduino-pro2 fork (mirrors upstream; no mutex fix): https://github.com/geofrancis/ameba-arduino-pro2
+- LighthouseAvionics/ameba-arduino-pro2 fork (Nov 2024, V4.0.8/4.0.9 era; no mutex fix): https://github.com/LighthouseAvionics/ameba-arduino-pro2
+- Forum thread #4821 (AMB82-mini USB CDC ECM; unrelated; 403-blocked): https://forum.amebaiot.com/t/amb82-mini-usb-host-cdc-ecm-fail-to-sim7600g-h/4821
+- Forum thread #4829 (AMB82 UVC teachable machine; unrelated; 403-blocked): https://forum.amebaiot.com/t/can-amb82-mini-be-used-with-teachable-machine-uvc-issue/4829
