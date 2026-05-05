@@ -2447,4 +2447,56 @@ The exact error strings `"It don't do the sensor initial process"`, `"FCS KM_sta
 - ameba-arduino-pro2 releases (re-confirmed latest: V4.1.1-QC-V05 Apr 30, 2026; no new tag): https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases
 - ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex, SHA 4fdfbec): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
 - ameba-rtos-pro2 video_api.c main (re-confirmed two unguarded ftl_common_write() calls): https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c
+
+---
+
+## Research Update — 2026-05-05 (Update 2 — 6-hour cycle)
+
+### Finding 106 — ameba-rtos-pro2 Has "aiglass" Product-Variant Tag Series (V1.0.3-aiglass.07, April 2, 2026)
+**Source:** https://github.com/Ameba-AIoT/ameba-rtos-pro2/tags  
+**Priority:** LOW — New observation about a parallel product track; not directly related to the bug
+
+The `ameba-rtos-pro2` repository hosts a separate tag series prefixed `aiglass`, distinct from the main AmebaPro2/AMB82-Mini release cadence. The most recent observed tag is **V1.0.3-aiglass.07** (April 2, 2026). These tags appear to correspond to a Realtek AI-glasses product variant that also uses the RTL8735B SoC. No "aiglass" tag changelog was inspectable (403-blocked).
+
+Significance for this bug:
+- The RTL8735B SoC is the same silicon across all these product variants. The `video_api.c` `ftl_common_write()` unguarded flash write race would apply equally to any product using `SAVE_TO_FLASH` FCS mode.
+- The "aiglass" series has an independent versioning track — any fix on the main branch would need a separate merge into "aiglass" builds.
+- No "aiglass" tag exists after April 2, 2026 — this variant branch is also inactive in the relevant period.
+
+This is the first documentation of the "aiglass" tag series in this research log. Note: `ameba-tool-rtos-pro2` (a separate repository, documented in Finding 77, last commit March 9, 2026) is distinct from these tags on `ameba-rtos-pro2` itself.
+
+---
+
+### Finding 107 — Complete Status Sweep: All Sources Static; Bug Unpatched as of 2026-05-05 (Update 2)
+**Source:** Exhaustive sweep of all tracked sources (2026-05-05, second 6-hour cycle)  
+**Priority:** LOW — Status confirmation
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | April 30, 2026 — SHA `e218f33` | **No new commits** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (April 30, 2026); V4.1.1 stable: HTTP 404 | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` | **No new commits** |
+| ameba-rtos-pro2 (tags) | V1.0.3-aiglass.07 (Apr 2, 2026) — aiglass variant only | **No new tags on main SDK track** |
+| ameba-arduino-pro2 pull requests | 0 open; highest item #407 | **No fix under review** |
+| ameba-arduino-pro2 issues | 17 open; highest filed: #398 (Mar 2026); #408 = 404 | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open; highest: #16 (Jan 2026) | **Zero new relevant issues** |
+| ideashatch/HUB-8735 | Dec 2, 2025 | **Inactive** |
+| Ai-Thinker-Open GitHub org | — | **No BW21-CBV repository** |
+| ameba-arduino-pro2 forks (36 total) | — | **Zero forks contain FlashMemory mutex patch** |
+| forum.amebaiot.com | All threads 403-blocked; highest observed ~#4834 | **No new accessible content** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports** |
+| bbs.ai-thinker.com (BW21-CBV) | — | **No camera/FCS bug threads** |
+| FlashMemory.cpp (dev, SHA 4fdfbec) | Sept 30, 2025 | **Still NO mutex fix — confirmed** |
+| video_api.c (main) | March 3, 2026 | **Two unguarded ftl_common_write() calls; no fix** |
+| Official documentation (ameba-arduino-doc) | April 16, 2026 | **No FlashMemory/FCS warning added** |
+| Public web (`"It don't do the sensor initial process"`) | — | **Zero new indexed results** |
+| Public web (`"FCS KM_status 0x00002081"`) | — | **Zero new indexed results** |
+| Public web (`"device_mutex_lock" "FlashMemory" Ameba`) | — | **Zero results — root cause uniquely documented in this log** |
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-05 (second 6-hour run).**
+
+---
+
+### Sources Added (Update 2026-05-05, Update 2)
+- ameba-rtos-pro2 tags (aiglass series, V1.0.3-aiglass.07 April 2, 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/tags
 - ameba-arduino-doc commits/main (last: d0b6ca3 Apr 16, 2026; no new commits): https://github.com/Ameba-AIoT/ameba-arduino-doc/commits/main
