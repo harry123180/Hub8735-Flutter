@@ -2563,3 +2563,44 @@ The exact bug-signature strings `"It don't do the sensor initial process"`, `"FC
 - ameba-arduino-pro2 issues (re-confirmed: 17 open, highest #398 Mar 2026, no new FCS issues): https://github.com/Ameba-AIoT/ameba-arduino-pro2/issues
 - ameba-rtos-pro2 issues (re-confirmed: 3 open, highest #16 Jan 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/issues
 - ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex, SHA `4fdfbec`): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
+
+---
+
+## Research Update — 2026-05-05 (Update 4 — 6-hour cycle)
+
+### Finding 110 — Complete Status Sweep: All Sources Static; Bug Unpatched as of 2026-05-05 (Update 4)
+**Source:** Exhaustive sweep of all tracked sources (2026-05-05, fourth 6-hour cycle)
+**Priority:** LOW — Status confirmation; no new information beyond Update 3
+
+Full sweep of all monitored sources. Results are identical to Update 3:
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | May 5, 2026 — SHA `13961cc` ("Update API for AMB82-zero and SWD off logic") | **Latest commit confirmed; no FCS/FlashMemory change** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (April 30, 2026 internal build); V4.1.1 stable: HTTP 404 | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` (WLAN dhcp sync) | **No new commits — confirmed** |
+| ameba-arduino-pro2 pull requests | 0 open; highest item #407 | **No fix under review** |
+| ameba-arduino-pro2 issues | 17 open; highest filed: #398 (Mar 29, 2026) | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open; highest: #16 (Jan 2026) | **Zero new relevant issues** |
+| ideashatch/HUB-8735 | Dec 2, 2025 — SHA `870a7e0`; issue #10 only | **Inactive** |
+| forum.amebaiot.com | All threads 403-blocked; highest indexed ~#4834 | **No new accessible content** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports — reconfirmed** |
+| bbs.ai-thinker.com (BW21-CBV) | — | **No camera/FCS bug threads** |
+| FlashMemory.cpp (dev, SHA `4fdfbec`) | Sept 30, 2025 | **Still NO mutex fix — re-confirmed by direct raw fetch** |
+| video_api.c (main) | March 3, 2026 | **Two unguarded `ftl_common_write()` calls; no mutex fix** |
+| Official documentation (ameba-arduino-doc) | April 16, 2026 | **No FlashMemory/FCS warning added** |
+| Public web (`"It don't do the sensor initial process"`) | — | **Zero new indexed results** |
+| Public web (`"FCS KM_status 0x00002081"`) | — | **Zero new indexed results** |
+| Public web (`"device_mutex_lock" "FlashMemory" Ameba`) | — | **Zero results — root cause uniquely documented in this log** |
+
+English and Chinese web searches across Google, CSDN, 知乎, 21ic, EEWorld, and bbs.ai-thinker.com confirm zero new public discussion of this bug in any language. No forum post, blog article, GitHub issue, or patch has appeared describing the FlashMemory/FCS mutex race condition or a fix for it.
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-05 (fourth 6-hour run).**
+
+---
+
+### Sources Added (Update 2026-05-05, Update 4)
+- ameba-arduino-pro2 dev commits (re-confirmed latest: `13961cc`, May 5, 2026; no new commits after): https://github.com/Ameba-AIoT/ameba-arduino-pro2/commits/dev
+- ameba-rtos-pro2 main commits (re-confirmed last: `1c1c8b7`, May 1, 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
+- ameba-arduino-pro2 releases (re-confirmed latest: V4.1.1-QC-V05, Apr 30, 2026; no new tag): https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases
+- ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex, SHA `4fdfbec`): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
