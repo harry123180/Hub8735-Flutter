@@ -2707,3 +2707,89 @@ The bug's specific error signatures remain completely unindexed on the public in
 - ameba-rtos-pro2 issues (3 open; highest: #16 Jan 2026; #17 = HTTP 404): https://github.com/Ameba-AIoT/ameba-rtos-pro2/issues
 - ideashatch/HUB-8735 issues (only issue #10, Aug 2025): https://github.com/ideashatch/HUB-8735/issues
 - ameba-arduino-pro2 PRs (0 open; 319 closed; no FlashMemory/FCS PR ever filed): https://github.com/Ameba-AIoT/ameba-arduino-pro2/pulls
+
+---
+
+## Research Update — 2026-05-06 (Update 2 — 6-hour cycle)
+
+### Finding 115 — Forum Threads #4796 and #4803 Newly Surfaced; Both Unrelated to Bug
+**Source:** Google search results; forum.amebaiot.com threads #4796 and #4803 (both 403-blocked)
+https://forum.amebaiot.com/t/imx327-compatiblity/4796
+https://forum.amebaiot.com/t/amb82-mini-usb-ethernet-failing/4803
+**Priority:** LOW — New thread numbers logged; no FCS/flash bug relevance
+
+Two previously unlogged forum threads were discovered via targeted searches in this cycle:
+
+- **Thread #4796**: "IMX327 Compatiblity" — A camera sensor compatibility question for the IMX327 sensor on AMB82-Mini. This is adjacent to FCS topics (FCS is per-sensor), but the title and URL slug indicate a general sensor ID/driver compatibility question, not a cold-boot camera failure after flash writes. Content is HTTP 403-blocked.
+- **Thread #4803**: "AMB82-mini: USB Ethernet failing" — A USB Ethernet peripheral failure question on AMB82-Mini. Unrelated to flash memory, FCS, or camera initialization. Content is HTTP 403-blocked.
+
+These are the highest-numbered forum threads newly observed in this research cycle beyond the previously documented #4794 and #4800 range. Neither contains evidence of the FlashMemory/FCS race bug. The highest indexed thread overall remains approximately #4834 ("Boot failure after OTA update", Finding 42).
+
+---
+
+### Finding 116 — CSDN AMB82-Mini Articles: General SDK Usage; Zero FCS/Flash Bug Reports
+**Source:** Google search `site:csdn.net AMB82-mini RTL8735B FlashMemory camera FCS`
+https://blog.csdn.net/weixin_41589183/article/details/139222964
+https://devpress.csdn.net/v1/article/detail/139584304
+https://blog.csdn.net/code_snow/article/details/139896968
+**Priority:** LOW — Chinese-language SDK usage articles; no FCS/flash bug content
+
+Three CSDN articles about the AMB82-Mini / RTL8735B were surfaced by search. Their contents (from search snippets):
+
+1. **"瑞昱半导体AMB82 MINI（RTL8735B）Arduino 方法介绍"** — General Arduino method overview for the AMB82-MINI board. Covers WiFi, GPIO, peripherals. No mention of FlashMemory, FCS, or camera boot failures.
+2. **"AMB82 MINI SD卡加载模型RTSP视频流AI识别"** — Tutorial for loading AI models from SD card and streaming RTSP video on AMB82-MINI. Notes that earlier SDK versions (pre-V4.0.7) used Flash for model loading; newer versions use SD card. No mention of FlashMemory/FCS interaction or cold-boot issues.
+3. **"arduino使用记录：_realtek ameba boards"** — Personal Arduino usage notes for Realtek Ameba boards. General SDK usage; no FCS/flash interaction documented.
+
+None of the three articles describe the FlashMemory/FCS race condition, camera boot failure after flash writes, or `KM_status 0x00002081`. These articles confirm that Chinese-language AMB82-Mini SDK content exists on CSDN but covers only general usage tutorials, not the specific bug documented in this research log.
+
+---
+
+### Finding 117 — All Repositories Unchanged; No Fix Found (2026-05-06 Update 2)
+**Source:** Direct fetches of ameba-rtos-pro2/commits/main and ameba-arduino-pro2/commits/dev (2026-05-06, second cycle)
+**Priority:** LOW — Status confirmation; no new fix commits
+
+Both repositories are static since their last documented activity:
+
+| Repository | Last commit SHA | Last commit date | Message |
+|---|---|---|---|
+| ameba-arduino-pro2 (dev) | `13961cc` | May 5, 2026 | "Update API for AMB82-zero and SWD off logic" |
+| ameba-rtos-pro2 (main) | `1c1c8b7` | May 1, 2026 | "Sync upstream — wowlan dhcp renew" |
+
+Zero new commits to either repository since the May 6 Update 1 run. No new releases. No open pull requests. FlashMemory.cpp SHA `4fdfbec` (September 30, 2025) is now over 8 months old with no mutex protection added — the longest gap between any two modifications to that file in its 10-month public history.
+
+---
+
+### Complete Status Sweep — 2026-05-06 (Update 2)
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | May 5, 2026 — SHA `13961cc` (AMB82-zero SWD pin) | **No new commits — confirmed** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (Apr 30, 2026); V4.1.1 stable = HTTP 404 | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` (WLAN dhcp) | **No new commits — confirmed** |
+| ameba-arduino-pro2 pull requests | 0 open | **No fix under review** |
+| ameba-arduino-pro2 issues | 17 open; highest filed: #398 (Mar 29, 2026) | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open; highest: #16 (Jan 2026) | **Zero new relevant issues** |
+| ideashatch/HUB-8735 | Dec 2, 2025; issue #10 only | **Inactive** |
+| Ai-Thinker-Open GitHub org | — | **No BW21-CBV repository** |
+| ameba-arduino-pro2 forks (36) | — | **Zero forks contain FlashMemory mutex patch** |
+| forum.amebaiot.com | Threads #4796, #4803 newly logged (both 403-blocked, unrelated); highest: ~#4834 | **No accessible bug-related content** |
+| CSDN | 3 AMB82-mini articles found; all general SDK usage; no FCS bug | **Zero FCS/flash bug reports** |
+| Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports — reconfirmed** |
+| bbs.ai-thinker.com (BW21-CBV) | — | **No camera/FCS bug threads** |
+| FlashMemory.cpp (dev, SHA `4fdfbec`) | Sept 30, 2025 (~8 months since last change) | **Still NO mutex fix — confirmed** |
+| video_api.c (main) | March 3, 2026 | **Two unguarded ftl_common_write() calls; no fix** |
+| Official documentation (ameba-arduino-doc) | April 16, 2026 | **No FlashMemory/FCS warning added** |
+| Public web (all bug-signature strings) | — | **Zero new indexed results — root cause uniquely in this log** |
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-06 (second 6-hour run).**
+
+---
+
+### Sources Added (Update 2026-05-06, Update 2)
+- Forum thread #4796 ("IMX327 Compatiblity", camera sensor compat; 403-blocked): https://forum.amebaiot.com/t/imx327-compatiblity/4796
+- Forum thread #4803 ("AMB82-mini: USB Ethernet failing"; 403-blocked): https://forum.amebaiot.com/t/amb82-mini-usb-ethernet-failing/4803
+- CSDN article (AMB82-MINI RTL8735B Arduino methods overview): https://blog.csdn.net/weixin_41589183/article/details/139222964
+- CSDN article (AMB82-MINI SD card RTSP AI model loading): https://devpress.csdn.net/v1/article/detail/139584304
+- CSDN article (Arduino usage notes for Realtek Ameba boards): https://blog.csdn.net/code_snow/article/details/139896968
+- ameba-arduino-pro2 dev commits (re-confirmed last: `13961cc`, May 5, 2026; no new commits): https://github.com/Ameba-AIoT/ameba-arduino-pro2/commits/dev
+- ameba-rtos-pro2 main commits (re-confirmed last: `1c1c8b7`, May 1, 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
