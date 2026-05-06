@@ -2609,6 +2609,70 @@ English and Chinese web searches across Google, CSDN, 知乎, 21ic, EEWorld, and
 
 ## Research Update — 2026-05-06
 
+### Finding 111 — New Forum Threads #4835, #4839, #4840 Identified; None Related to Bug
+**Source:** Google site-search + direct URL probes for forum.amebaiot.com threads above #4834 (all 403-blocked for full content)
+https://forum.amebaiot.com/t/amb82-mini-deep-sleep-is-aon-gpio-pin-21-unreadable-after-powermode-begin-bus-fault-observed/4835
+https://forum.amebaiot.com/t/how-to-upload-to-cloud-in-remote-locations/4839
+https://forum.amebaiot.com/t/ameba-pro-https-bin-ota/4840
+**Priority:** LOW — New thread numbers logged; no FCS/FlashMemory bug content
+
+Three new forum threads have been indexed since the last research cycle (highest previously observed was ~#4834):
+
+- **Thread #4835**: "AMB82-mini Deep Sleep: Is AON GPIO pin 21 unreadable after `PowerMode.begin()`? (Bus Fault observed)" — Deep sleep / AON GPIO / PowerMode bus fault. Unrelated to FCS, FlashMemory, or camera cold-boot failure.
+- **Thread #4839**: "How to upload to cloud in remote locations" — Cloud connectivity question. Unrelated.
+- **Thread #4840**: "關於Ameba Pro透過https下載Bin檔進行OTA的流程" (OTA via HTTPS for Ameba Pro, May 1, 2026) — HTTPS OTA download problems. Unrelated.
+
+Threads #4836–#4838 and #4841+ are not indexed by Google as of this cycle. The highest confirmed active forum thread is now **#4840**. None of the three new threads mention VOE, FCS, FlashMemory, camera initialization failure, or cold-boot errors.
+
+---
+
+### Finding 112 — Complete Status Sweep: All Repositories Static; Bug Unpatched as of 2026-05-06
+**Source:** Exhaustive sweep of all tracked sources (2026-05-06, 6-hour cycle)
+**Priority:** LOW — Status confirmation
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | May 5, 2026 — SHA `13961cc` ("Update API for AMB82-zero and SWD off logic") | **No new commits — confirmed by direct fetch** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (tag: Mar 6, 2026; internal build through Apr 30, 2026); V4.1.1 stable: HTTP 404 | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` (WLAN dhcp sync) | **No new commits — confirmed by direct fetch** |
+| ameba-arduino-pro2 pull requests | 0 open; 319 closed; highest item #407 | **No fix under review** |
+| ameba-arduino-pro2 issues | 17 open; highest filed: #398 (Mar 29, 2026); #408 = HTTP 404 | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open; highest: #16 (Jan 2026); #17 and #18 = HTTP 404 | **Zero new relevant issues** |
+| ideashatch/HUB-8735 | Dec 2, 2025 — SHA `870a7e0`; issue #10 only | **Inactive; no new issues** |
+| Ai-Thinker-Open GitHub org | — | **No BW21-CBV repository** |
+| ameba-arduino-pro2 forks (36 total) | — | **Zero forks contain FlashMemory mutex patch** |
+| forum.amebaiot.com | Threads #4835 (deep sleep), #4839 (cloud), #4840 (OTA HTTPS) newly indexed; all 403-blocked | **No new FCS/flash/camera threads; highest confirmed thread #4840** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports — reconfirmed** |
+| bbs.ai-thinker.com (BW21-CBV) | — | **No camera/FCS bug threads** |
+| FlashMemory.cpp (dev, SHA `4fdfbec`) | Sept 30, 2025 | **Still NO mutex fix — confirmed by direct raw fetch** |
+| video_api.c (main) | March 3, 2026 | **Two unguarded `ftl_common_write()` calls; no mutex fix** |
+| Official documentation (ameba-arduino-doc) | April 16, 2026 | **No FlashMemory/FCS warning added** |
+| Public web (`"It don't do the sensor initial process"`) | — | **Zero new indexed results** |
+| Public web (`"FCS KM_status 0x00002081"`) | — | **Zero new indexed results** |
+| Public web (`"device_mutex_lock" "FlashMemory" Ameba`) | — | **Zero results — root cause uniquely documented in this log** |
+
+Direct raw fetches of `FlashMemory.cpp` (dev) and `video_api.c` (main) re-confirm: no `device_mutex_lock` calls in `FlashMemory.cpp`; two unguarded `ftl_common_write()` calls in `video_pre_init_save_cur_params()` remain present. GitHub commit-message search for `FlashMemory + mutex` across the entire `ameba-arduino-pro2` history returns 0 results.
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-06.**
+
+---
+
+### Sources Added (Update 2026-05-06)
+- forum.amebaiot.com thread #4835 (AMB82-mini deep sleep/AON GPIO bus fault; unrelated; 403-blocked): https://forum.amebaiot.com/t/amb82-mini-deep-sleep-is-aon-gpio-pin-21-unreadable-after-powermode-begin-bus-fault-observed/4835
+- forum.amebaiot.com thread #4839 (cloud upload; unrelated; 403-blocked): https://forum.amebaiot.com/t/how-to-upload-to-cloud-in-remote-locations/4839
+- forum.amebaiot.com thread #4840 (OTA via HTTPS, May 1 2026; unrelated; 403-blocked): https://forum.amebaiot.com/t/ameba-pro-https-bin-ota/4840
+- ameba-arduino-pro2 dev commits (confirmed latest: `13961cc`, May 5, 2026; no new commits): https://github.com/Ameba-AIoT/ameba-arduino-pro2/commits/dev
+- ameba-rtos-pro2 main commits (confirmed last: `1c1c8b7`, May 1, 2026; no new commits): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
+- ameba-arduino-pro2 issues (17 open; highest: #398 Mar 2026; #408 = HTTP 404): https://github.com/Ameba-AIoT/ameba-arduino-pro2/issues
+- ameba-rtos-pro2 issues (3 open; highest: #16 Jan 2026; #17/#18 = HTTP 404): https://github.com/Ameba-AIoT/ameba-rtos-pro2/issues
+- ameba-arduino-pro2 releases (V4.1.1-QC-V05 tag created Mar 6, 2026; internal builds through Apr 30, 2026; no new tag): https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases
+- ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex, SHA `4fdfbec`): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
+- ameba-rtos-pro2 video_api.c main (re-confirmed two unguarded ftl_common_write() calls): https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c
+
+---
+
+## Research Update — 2026-05-06
+
 ### Finding 111 — All Repositories Static Since Previous Cycle; No Fix Found
 **Source:** Direct fetches of ameba-rtos-pro2/commits/main and ameba-arduino-pro2/commits/dev (2026-05-06)
 https://github.com/Ameba-AIoT/ameba-rtos-pro2/compare/1c1c8b7...main
