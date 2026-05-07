@@ -3285,3 +3285,91 @@ The official Arduino documentation repository has no commits since `d0b6ca3` ("U
 - ideashatch/HUB-8735 issues (only issue #10 Aug 2025): https://github.com/ideashatch/HUB-8735/issues
 - ameba-arduino-pro2 PRs (0 open, 319 closed; no FlashMemory/FCS PR ever filed): https://github.com/Ameba-AIoT/ameba-arduino-pro2/pulls
 - ameba-arduino-doc commits/main (last: `d0b6ca3` Apr 16, 2026; no new commits): https://github.com/Ameba-AIoT/ameba-arduino-doc/commits/main
+
+---
+
+## Research Update — 2026-05-07 (Update 2 — 6-hour cycle)
+
+### Finding 129 — Both Repos Confirmed Static; No New Fix Commits (May 7, 2026 — Cycle 2)
+**Source:** Direct fetches of ameba-arduino-pro2/commits/dev and ameba-rtos-pro2/commits/main (2026-05-07, second 6-hour run)
+https://github.com/Ameba-AIoT/ameba-arduino-pro2/commits/dev
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
+**Priority:** LOW — Status confirmation; no new fix commits
+
+Both repositories remain static:
+
+| Repository | Last commit SHA | Last commit date | Message |
+|---|---|---|---|
+| ameba-arduino-pro2 (dev) | `13961cc` (`13961ccfef03e6f42c6e6d29e96a446fca29b71c`) | May 5, 2026 | "Update API for AMB82-zero and SWD off logic" |
+| ameba-rtos-pro2 (main) | `1c1c8b7` (`1c1c8b711a419d2d49190d34f7c13e2fd0b14974`) | May 1, 2026 | "Sync upstream — wowlan dhcp renew" |
+
+Zero new commits to either repository. No new releases, PRs, or issues. FlashMemory.cpp (SHA `4fdfbec`, September 30, 2025) is now **over 8.5 months** without modification — the longest unmodified stretch in its 10-month public history. video_api.c unchanged since March 3, 2026.
+
+---
+
+### Finding 130 — V4.1.1-QC-V05 Release Notes Fully Confirmed: Ends April 30, 2026; Zero Fix Mentions
+**Source:** https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases/tag/V4.1.1-QC-V05 (direct fetch, 2026-05-07)
+**Priority:** LOW — Complete changelog confirmed; no hidden FlashMemory/FCS fix entry
+
+The full release notes for V4.1.1-QC-V05 contain exactly five dated entries: 2026/03/06, 2026/03/20, 2026/04/02, 2026/04/17, 2026/04/30. These are organized into three fixed sections (Features, API Updates, Misc). A complete scan of all five entries finds **zero mentions** of any of: FlashMemory, mutex, FCS, RT_DEV_LOCK_FLASH, camera boot, VOE initialization failure, flash-camera interaction, or concurrent flash access. The last changelog entry is explicitly "Version 4.1.1 — 2026/04/30". No entry exists beyond that date. V4.1.1-QC-V06 tag returns HTTP 404 — it does not exist.
+
+---
+
+### Finding 131 — bbs.aithinker.com New Thread tid=47223: BW21 Digital Camera DIY Project; No FCS Bug Content
+**Source:** Google search snippet for bbs.aithinker.com thread tid=47223 (full page inaccessible — TLS certificate error)
+https://bbs.aithinker.com/forum.php?mod=viewthread&tid=47223
+**Priority:** LOW — New higher-numbered BW21-CBV thread logged; no FCS/flash bug relevance
+
+Thread tid=47223 ("【电子DIY作品】BW21数码相机+BW21-CBV-KIT") is a DIY digital camera project using the BW21-CBV-KIT board, featuring 1080p video recording to SD card and a display. This is the highest-numbered bbs.aithinker.com thread found in this research cycle (previously highest documented: tid=47062 from Finding 85, 2026-05-03). Gap of ~161 threads (47062 → 47223) reflects continued BW21-CBV community activity. The Google-indexed snippet contains **no mention** of FCS, FlashMemory, camera cold-boot failure, flash write errors, VOE initialization, or cold-boot bugs of any kind. The project is entirely a maker/DIY use case (hardware assembly + RTSP streaming), not a bug report.
+
+---
+
+### Finding 132 — ameba-arduino-pro2 PR History Confirmed: Only PR #333 Surfaces for FlashMemory Keyword Search
+**Source:** https://github.com/Ameba-AIoT/ameba-arduino-pro2/pulls?q=is%3Apr+FlashMemory+is%3Aclosed (2026-05-07)
+**Priority:** LOW — Complete PR history confirmed; no fix attempt ever filed
+
+A closed-PR search for "FlashMemory" in `ameba-arduino-pro2` returns **1 result**: PR #333 "Update WiFi example" (merged September 9, 2025 by M-ichae-l). This PR is entirely unrelated to flash memory (the "FlashMemory" keyword match is coincidental). There is **no PR in the entire 319-closed-PR history** of `ameba-arduino-pro2` that adds `device_mutex_lock`, `RT_DEV_LOCK_FLASH`, or any synchronization guard to `FlashMemory.cpp`. The fix has never been proposed, reviewed, or merged in any form.
+
+---
+
+### Finding 133 — Complete Status Sweep: Bug Unpatched as of 2026-05-07 (Update 2)
+**Source:** Exhaustive sweep of all tracked sources (2026-05-07, second 6-hour run)
+**Priority:** LOW — Status confirmation
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | May 5, 2026 — SHA `13961cc` (AMB82-zero SWD) | **No new commits — confirmed** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (Apr 30, 2026); V4.1.1 stable = HTTP 404; V4.1.1-QC-V06 = HTTP 404 | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` (WLAN dhcp sync) | **No new commits — confirmed** |
+| ameba-arduino-pro2 pull requests | 0 open; 319 closed; PR #333 only FlashMemory search result (WiFi example, unrelated) | **No fix under review; no fix ever filed** |
+| ameba-arduino-pro2 issues | 12 open (confirmed count); highest filed: #398 (Mar 29, 2026) | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open; highest: #16 (Jan 2026) | **Zero new relevant issues** |
+| ideashatch/HUB-8735 | Dec 2, 2025 — SHA `870a7e0`; issue #10 only | **Inactive** |
+| ideashatch/HUB-8735-Series_examples | 54 commits; AI/CV examples only | **No FCS/flash bug content** |
+| Ai-Thinker-Open GitHub org | — | **No BW21-CBV repository** |
+| ameba-arduino-pro2 forks (36 total) | Various | **Zero forks contain FlashMemory mutex patch** |
+| forum.amebaiot.com | All threads 403-blocked; highest indexed: #4840 (HTTPS OTA); no new FCS/flash threads | **No new accessible bug-related content** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports — reconfirmed** |
+| bbs.ai-thinker.com (BW21-CBV) | New thread tid=47223 (DIY digital camera); highest confirmed tid now 47223 | **No FCS/flash bug content** |
+| FlashMemory.cpp (dev, SHA `4fdfbec`) | Sept 30, 2025 (>8.5 months) | **Still NO mutex fix — confirmed by direct raw fetch** |
+| video_api.c (main) | March 3, 2026 | **Unguarded ftl_common_write() call(s); no mutex fix** |
+| Official documentation (ameba-arduino-doc) | April 16, 2026 — SHA `d0b6ca3` | **No new commits; no FlashMemory/FCS warning** |
+| Public web (`"It don't do the sensor initial process"`) | — | **Zero new indexed results** |
+| Public web (`"FCS KM_status 0x00002081"`) | — | **Zero new indexed results** |
+| Public web (`"device_mutex_lock" "FlashMemory" Ameba`) | — | **Zero results — root cause uniquely documented in this log** |
+
+English and Chinese web searches (Google, CSDN, 知乎, 21ic, EEWorld, bbs.ai-thinker.com) confirm zero new public discussion of this bug in any language. No forum post, blog article, GitHub issue, or code patch describes the FlashMemory/FCS mutex race condition or a fix for it. The root cause (FlashMemory.cpp bypassing RT_DEV_LOCK_FLASH, confirmed Hypothesis F) remains the sole public analysis of this issue anywhere on the indexed internet.
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-07 (second 6-hour run).**
+
+---
+
+### Sources Added (Update 2026-05-07, Update 2)
+- ameba-arduino-pro2 dev commits (re-confirmed last: `13961cc`, May 5, 2026; no new commits): https://github.com/Ameba-AIoT/ameba-arduino-pro2/commits/dev
+- ameba-rtos-pro2 main commits (re-confirmed last: `1c1c8b7`, May 1, 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
+- ameba-arduino-pro2 V4.1.1-QC-V05 release notes (fully scanned; last entry Apr 30, 2026; no FlashMemory/FCS fix): https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases/tag/V4.1.1-QC-V05
+- ameba-arduino-pro2 V4.1.1-QC-V06 release tag (HTTP 404 confirmed): https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases/tag/V4.1.1-QC-V06
+- ameba-arduino-pro2 PR search (FlashMemory, closed) — only PR #333 surfaces (WiFi example, unrelated): https://github.com/Ameba-AIoT/ameba-arduino-pro2/pulls?q=is%3Apr+FlashMemory+is%3Aclosed
+- bbs.aithinker.com thread tid=47223 (BW21数码相机+BW21-CBV-KIT; DIY camera; no FCS bug; highest confirmed BW21-CBV thread): https://bbs.aithinker.com/forum.php?mod=viewthread&tid=47223
+- ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex, SHA `4fdfbec`, >8.5 months unmodified): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
+- ameba-rtos-pro2 video_api.c main (re-confirmed unguarded ftl_common_write() call; device_lock.h included but unused for FCS path): https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c
