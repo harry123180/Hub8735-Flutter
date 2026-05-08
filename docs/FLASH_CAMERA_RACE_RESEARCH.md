@@ -3507,3 +3507,85 @@ English and Chinese web searches (Google, CSDN, 知乎, 21ic, EEWorld, bbs.ai-th
 - ideashatch/HUB-8735-Series_examples (re-confirmed no FCS/flash bug content): https://github.com/ideashatch/HUB-8735-Series_examples
 - forum.amebaiot.com threads #4841–#4860 (all HTTP 403; no FCS/flash camera bug content): https://forum.amebaiot.com/t/4841 (representative)
 - bbs.aithinker.com thread tid=47223 (BW21数码相机+BW21-CBV-KIT; DIY camera; no FCS bug; highest confirmed BW21-CBV thread): https://bbs.aithinker.com/forum.php?mod=viewthread&tid=47223
+
+---
+
+## Research Update — 2026-05-08 (Update 2 — 6-hour cycle)
+
+### Finding 139 — Forum Thread #4847 "I2C1 for MPU6050" — New Highest Indexed Thread; Unrelated to Bug
+**Source:** Google search results — forum.amebaiot.com thread #4847 (HTTP 403-blocked for full content)
+https://forum.amebaiot.com/t/i2c1-for-mpu6050/4847
+**Priority:** LOW — New higher-numbered thread logged; updates highest confirmed forum thread from #4840 to #4847; no FCS/flash bug relevance
+
+Forum thread **#4847** ("I2C1 for MPU6050") surfaced in search results for this cycle. Based on search engine metadata it was posted approximately 2 days before this research run, placing it around **May 6–7, 2026**. The thread discusses using the I2C1 bus on AMB82-Mini to communicate with an MPU6050 IMU sensor. Content is HTTP 403-blocked; only title and URL slug are available.
+
+**This is the new highest confirmed indexed forum thread**, replacing #4840 ("關於Ameba Pro透過https下載Bin檔進行OTA的流程", HTTPS OTA, May 1, 2026) as the previously highest. The numbering gap #4840 → #4847 = 7 threads confirms continued forum activity (May 1–7, 2026 period). None of the 7 intermediate threads have been indexed by Google with content matching any bug-signature string.
+
+No FCS, FlashMemory, cold-boot camera failure, VOE error, or flash-camera interaction is referenced in the visible title or URL slug of thread #4847.
+
+---
+
+### Finding 140 — Forum Thread #4802 "AMB82-Mini USB Host CDC ECM fails to enumerate Quectel EC200U 4G modem" — Previously Undocumented Thread Number
+**Source:** Google search results — forum.amebaiot.com thread #4802 (HTTP 403-blocked)
+https://forum.amebaiot.com/t/amb82-mini-usb-host-cdc-ecm-fails-to-enumerate-quectel-ec200u-4g-modem-ecm-init-fail/4802
+**Priority:** LOW — New thread number logged; different from previously documented #4803; no FCS bug content
+
+Forum thread **#4802** ("AMB82-Mini USB Host CDC ECM fails to enumerate Quectel EC200U 4G modem — 'ecm init fail'") was surfaced by search in this cycle. Prior research had documented thread #4803 ("AMB82-mini USB host CDC ECM fail to SIM7600G-H", Finding 100), but thread #4802 — a separate, different thread about USB CDC-ECM enumeration of a Quectel 4G modem — was not previously logged. Both #4802 and #4803 cover USB CDC-ECM peripheral failures on AMB82-Mini, unrelated to FCS, FlashMemory, or camera cold-boot failure. Full content is HTTP 403-blocked.
+
+---
+
+### Finding 141 — Both Repository Compare Endpoints Confirm Zero New Commits (May 8, 2026)
+**Source:** Direct compare fetches (2026-05-08, second run)
+https://github.com/Ameba-AIoT/ameba-arduino-pro2/compare/13961cc...dev
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/compare/1c1c8b7...main
+**Priority:** LOW — Status confirmation; no new fix commits
+
+Both GitHub compare endpoints return "identical" — confirming zero new commits since last documented activity:
+
+| Repository | Last commit SHA | Last commit date | Message |
+|---|---|---|---|
+| ameba-arduino-pro2 (dev) | `13961cc` | May 5, 2026 | "Update API for AMB82-zero and SWD off logic" |
+| ameba-rtos-pro2 (main) | `1c1c8b7` | May 1, 2026 | "Sync upstream — wowlan dhcp renew" |
+
+`FlashMemory.cpp` (SHA `4fdfbec`) remains unchanged since September 30, 2025 — now over **8.5 months** without modification, the longest uninterrupted stretch in its ~10-month public history. `video_api.c` unchanged since March 3, 2026. No releases, PRs, or issues have been filed in any repository since the previous research cycle.
+
+---
+
+### Finding 142 — Complete Status Sweep: Bug Unpatched as of 2026-05-08 (Update 2)
+**Source:** Exhaustive sweep of all tracked sources (2026-05-08, second 6-hour run)
+**Priority:** LOW — Status confirmation
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | May 5, 2026 — SHA `13961cc` | **No new commits — compare endpoint confirms identical** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (Apr 30, 2026); V4.1.1 stable = HTTP 404 | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` | **No new commits — compare endpoint confirms identical** |
+| ameba-arduino-pro2 pull requests | 0 open; 319 closed | **No fix under review** |
+| ameba-arduino-pro2 issues | 12 open; highest filed: #398 (Mar 2026) | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open; highest: #16 (Jan 2026) | **Zero new relevant issues** |
+| ideashatch/HUB-8735 | Dec 2, 2025 | **Inactive** |
+| Ai-Thinker-Open GitHub org | — | **No BW21-CBV repository** |
+| ameba-arduino-pro2 forks (36 total) | Various | **Zero forks contain FlashMemory mutex patch** |
+| forum.amebaiot.com | Thread #4847 ("I2C1 for MPU6050", ~May 6–7, 2026) — new highest indexed thread; all 403-blocked | **No FCS/flash/camera bug threads; highest confirmed thread #4847** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports — reconfirmed** |
+| bbs.ai-thinker.com (BW21-CBV) | Highest: tid=47223 (DIY camera, unrelated) | **No camera/FCS bug threads** |
+| FlashMemory.cpp (dev, SHA `4fdfbec`) | Sept 30, 2025 (>8.5 months) | **Still NO mutex fix — 6 unguarded flash operations** |
+| video_api.c (main) | March 3, 2026 | **Unguarded ftl_common_write() calls; no mutex fix** |
+| Official documentation (ameba-arduino-doc) | April 16, 2026 | **No FlashMemory/FCS warning added** |
+| Public web (`"It don't do the sensor initial process"`) | — | **Zero new indexed results** |
+| Public web (`"FCS KM_status 0x00002081"`) | — | **Zero new indexed results** |
+| Public web (`"device_mutex_lock" "FlashMemory" Ameba`) | — | **Zero results — root cause uniquely documented in this log** |
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-08 (second 6-hour run).**
+
+---
+
+### Sources Added (Update 2026-05-08, Update 2)
+- forum.amebaiot.com thread #4847 ("I2C1 for MPU6050"; ~May 6–7, 2026; new highest indexed thread; unrelated to bug; 403-blocked): https://forum.amebaiot.com/t/i2c1-for-mpu6050/4847
+- forum.amebaiot.com thread #4802 ("AMB82-Mini USB Host CDC ECM fails to enumerate Quectel EC200U 4G modem"; previously undocumented; unrelated; 403-blocked): https://forum.amebaiot.com/t/amb82-mini-usb-host-cdc-ecm-fails-to-enumerate-quectel-ec200u-4g-modem-ecm-init-fail/4802
+- ameba-arduino-pro2 compare `13961cc...dev` (confirmed identical — no new commits since May 5, 2026): https://github.com/Ameba-AIoT/ameba-arduino-pro2/compare/13961cc...dev
+- ameba-rtos-pro2 compare `1c1c8b7...main` (confirmed identical — no new commits since May 1, 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/compare/1c1c8b7...main
+- ameba-arduino-pro2 releases (re-confirmed: V4.1.1-QC-V05 latest; no V4.1.1 stable; no V4.1.1-QC-V06): https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases
+- ameba-arduino-pro2 issues (re-confirmed: 12 open, highest #398 Mar 2026; no new FCS issues): https://github.com/Ameba-AIoT/ameba-arduino-pro2/issues
+- ameba-rtos-pro2 issues (re-confirmed: 3 open, highest #16 Jan 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/issues
+- ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex; SHA `4fdfbec`; write() and writeWord() unchanged): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
