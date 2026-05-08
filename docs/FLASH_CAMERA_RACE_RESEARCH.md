@@ -3424,3 +3424,86 @@ English and Chinese web searches (Google, CSDN, 知乎, 21ic, EEWorld, bbs.ai-th
 - ameba-rtos-pro2 main commits (re-confirmed last: `1c1c8b7`, May 1, 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
 - ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex, SHA `4fdfbec`): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
 - ameba-rtos-pro2 video_api.c main (re-confirmed unguarded ftl_common_write() in SAVE_TO_FLASH path): https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c
+
+---
+
+## Research Update — 2026-05-08
+
+### Finding 136 — Clarification to Finding 97: ftl_common_write() Appears in Both Load and Save Paths of video_api.c
+**Source:** `ameba-rtos-pro2/main` — `video_api.c` (fresh fetch, May 8, 2026)  
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c  
+**Priority:** MEDIUM — Refines prior finding; potentially extends the race window to the load path as well
+
+Finding 97 (2026-05-04 Update 3) documented two `ftl_common_write()` calls "within `video_pre_init_save_cur_params()`." A fresh fetch of `video_api.c` (May 8, 2026) reveals that `ftl_common_write()` is called in **two separate functions**:
+1. `video_pre_init_load_params()` — the boot-time FCS load function
+2. `video_pre_init_save_cur_params()` — the runtime FCS save function
+
+If `video_pre_init_load_params()` truly uses `ftl_common_write()` (rather than `ftl_common_read()`), this would mean the load path also writes flash — possibly updating a header or status byte. **Neither call is wrapped with `device_mutex_lock(RT_DEV_LOCK_FLASH)`.**
+
+**Caveat:** It is possible this reflects `ftl_common_read()` in the load path (misread by the research tool) rather than a genuine write. The underlying SPI collision hazard exists regardless — `ftl_common_read()` also internally acquires `RT_DEV_LOCK_FLASH`, so `FlashMemory.cpp`'s unguarded calls would still race with it. If the load path does use `ftl_common_write()`, the race window is larger than modelled in Finding 97.
+
+---
+
+### Finding 137 — FlashMemory.cpp: Six Total Unguarded Flash Operations Confirmed
+**Source:** `ameba-arduino-pro2/dev` — `FlashMemory.cpp` (fresh fetch, May 8, 2026)  
+https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp  
+**Priority:** MEDIUM — Expands prior characterisation (Finding 63 counted two call sites; full count is six)
+
+A fresh read of `FlashMemory.cpp` (dev, SHA `4fdfbec`) confirms **six unguarded raw flash operations** distributed across three functions:
+
+| Function | Operations | Mutex |
+|---|---|---|
+| `write()` | `flash_erase_sector()` × N sectors + `flash_stream_write()` × 1 | None |
+| `writeWord()` | `flash_write_word()` × 1; on bit-flip conflict: `flash_erase_sector()` × 1 + `flash_stream_write()` × 1 | None |
+| `eraseSector()` / `eraseWord()` | `flash_erase_sector()` × 1 | None |
+
+Total: up to six distinct SPI flash command sequences — all bypassing `RT_DEV_LOCK_FLASH`. Any one of these can race with the video module's `ftl_common_write()` / `ftl_common_read()` calls (which do hold the lock). The file has not been modified since SHA `4fdfbec` (September 30, 2025) — over 8.5 months unpatched.
+
+---
+
+### Finding 138 — Complete Status Sweep: Bug Unpatched as of 2026-05-08
+**Source:** Exhaustive sweep of all tracked sources (2026-05-08)  
+**Priority:** LOW — Status confirmation
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | May 5, 2026 — SHA `13961cc` ("Update API for AMB82-zero and SWD off logic") | **No new commits — compare `13961cc...dev` returns identical** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (Apr 30, 2026); V4.1.1 stable = HTTP 404; V4.1.1-QC-V06 = HTTP 404 | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` (WLAN dhcp sync) | **No new commits — compare `1c1c8b7...main` returns identical** |
+| ameba-rtos-pro2 (tags) | V1.0.3-aiglass.07 (Apr 2, 2026) remains most recent | **No new tags** |
+| ameba-arduino-pro2 pull requests | 0 open; 319 closed; no FlashMemory/FCS/mutex PR ever filed | **No fix under review** |
+| ameba-arduino-pro2 issues | 12 open; highest filed: #398 (Mar 29, 2026); #408–#410 = HTTP 404 | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open; highest: #16 (Jan 2026); #17 = HTTP 404 | **Zero new relevant issues** |
+| ideashatch/HUB-8735 | Dec 2, 2025 — SHA `870a7e0`; issue #10 only | **Inactive** |
+| ideashatch/HUB-8735-Series_examples | ~54 commits; AI/CV examples only | **No FCS/flash bug content** |
+| Ai-Thinker-Open GitHub org | — | **No BW21-CBV repository** |
+| ameba-arduino-pro2 forks (36 total) | — | **Zero forks contain FlashMemory mutex patch** |
+| forum.amebaiot.com | Threads #4841–#4860 all HTTP 403; highest indexed: #4840 (HTTPS OTA); no FCS/flash camera threads | **No new accessible content** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports — reconfirmed** |
+| bbs.ai-thinker.com / bbs.aithinker.com (BW21-CBV) | Highest confirmed: tid=47223 (DIY camera, unrelated) | **No FCS/flash bug threads** |
+| FlashMemory.cpp (dev, SHA `4fdfbec`) | Sept 30, 2025 (>8.5 months unmodified) | **Still NO mutex fix — 6 unguarded flash operations confirmed** |
+| video_api.c (main) | March 3, 2026 | **ftl_common_write() in both load and save paths; neither guarded — confirmed** |
+| Official documentation (ameba-arduino-doc) | April 16, 2026 — SHA `d0b6ca3` | **No new commits; no FlashMemory/FCS warning added** |
+| Public web (`"It don't do the sensor initial process"`) | — | **Zero new indexed results** |
+| Public web (`"FCS KM_status 0x00002081"`) | — | **Zero new indexed results** |
+| Public web (`"[VOE][WARN]slot full"` ameba) | — | **Zero new indexed results** |
+| Public web (`"device_mutex_lock" "FlashMemory" Ameba`) | — | **Zero results — root cause uniquely documented in this log** |
+
+English and Chinese web searches (Google, CSDN, 知乎, 21ic, EEWorld, bbs.ai-thinker.com) confirm zero new public discussion of this bug in any language. All six bug-signature strings remain completely unindexed on the public internet. No forum post, blog article, YouTube video, GitHub issue, or code patch describes the FlashMemory/FCS mutex race condition or a fix for it.
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-08.**
+
+---
+
+### Sources Added (Update 2026-05-08)
+- ameba-arduino-pro2 compare `13961cc...dev` (confirmed identical — no new commits since May 5, 2026): https://github.com/Ameba-AIoT/ameba-arduino-pro2/compare/13961cc...dev
+- ameba-rtos-pro2 compare `1c1c8b7...main` (confirmed identical — no new commits since May 1, 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/compare/1c1c8b7...main
+- ameba-arduino-pro2 releases (re-confirmed latest: V4.1.1-QC-V05, Apr 30, 2026; V4.1.1-QC-V06 = HTTP 404): https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases
+- ameba-rtos-pro2 tags (re-confirmed latest: V1.0.3-aiglass.07, Apr 2, 2026; no new tags): https://github.com/Ameba-AIoT/ameba-rtos-pro2/tags
+- ameba-arduino-pro2 issues (re-confirmed: 12 open, highest #398 Mar 2026, #408–#410 = HTTP 404): https://github.com/Ameba-AIoT/ameba-arduino-pro2/issues
+- ameba-rtos-pro2 issues (re-confirmed: 3 open, highest #16 Jan 2026, #17 = HTTP 404): https://github.com/Ameba-AIoT/ameba-rtos-pro2/issues
+- ameba-arduino-pro2 FlashMemory.cpp dev (6 unguarded flash operations confirmed; SHA `4fdfbec`; >8.5 months unmodified): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
+- ameba-rtos-pro2 video_api.c main (ftl_common_write() in load and save paths; neither guarded): https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c
+- ideashatch/HUB-8735-Series_examples (re-confirmed no FCS/flash bug content): https://github.com/ideashatch/HUB-8735-Series_examples
+- forum.amebaiot.com threads #4841–#4860 (all HTTP 403; no FCS/flash camera bug content): https://forum.amebaiot.com/t/4841 (representative)
+- bbs.aithinker.com thread tid=47223 (BW21数码相机+BW21-CBV-KIT; DIY camera; no FCS bug; highest confirmed BW21-CBV thread): https://bbs.aithinker.com/forum.php?mod=viewthread&tid=47223
