@@ -3589,3 +3589,44 @@ Both GitHub compare endpoints return "identical" — confirming zero new commits
 - ameba-arduino-pro2 issues (re-confirmed: 12 open, highest #398 Mar 2026; no new FCS issues): https://github.com/Ameba-AIoT/ameba-arduino-pro2/issues
 - ameba-rtos-pro2 issues (re-confirmed: 3 open, highest #16 Jan 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/issues
 - ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex; SHA `4fdfbec`; write() and writeWord() unchanged): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
+
+---
+
+## Research Update — 2026-05-08 (Update 3 — 6-hour cycle)
+
+### Finding 143 — New Chinese-Language BW21-CBV Article Indexed on mcublog.cn (April 2026); No FCS Bug Content
+**Source:** Google-indexed result — https://www.mcublog.cn/software/2026_04/ai-bw21-cbv-led-photo/ (HTTP 403 on direct fetch)
+**Priority:** LOW — New specific URL identified; no FCS/flash bug content confirmed
+
+A previously unlogged Chinese-language article from **mcublog.cn** (April 2026) was surfaced in a targeted search for BW21-CBV + camera + FCS + cold boot content. Article title (from search snippet): "我让AI帮我把BW21-CBV开发板接入了飞书机器人，不光能控制点灯，还能拍照看照片" (roughly: "I used AI to connect my BW21-CBV development board to a Feishu robot — it can control LEDs and take photos"). The full article was HTTP 403-blocked on direct fetch.
+
+The Google-indexed snippet describes a beginner-level Feishu bot integration using BW21-CBV for LED control and camera snapshot capture. No mention of FlashMemory writes, FCS mode configuration, cold boot failures, VOE initialization errors, or any flash-camera interaction issue is visible in the title or indexed snippet. The article represents additional April 2026 Chinese-language BW21-CBV community activity but contains no evidence of independent discovery of the FlashMemory/FCS bug.
+
+Previous research cycles referenced mcublog.cn in status tables but had not identified this specific article URL.
+
+---
+
+### Finding 144 — Complete Status Sweep: Bug Unpatched as of 2026-05-08 (Update 3)
+**Source:** Exhaustive sweep of all tracked sources (2026-05-08, third 6-hour run)
+**Priority:** LOW — Status confirmation; no new fix
+
+All previously documented statuses are unchanged from Finding 142 (Update 2):
+
+| Repository / Source | Status as of 2026-05-08 Update 3 |
+|---|---|
+| ameba-arduino-pro2 (dev) | Last: SHA `13961cc`, May 5, 2026 — no FCS/FlashMemory change |
+| ameba-rtos-pro2 (main) | Last: SHA `1c1c8b7`, May 1, 2026 — no new commits |
+| ameba-arduino-pro2 releases | V4.1.1-QC-V05 latest; V4.1.1 stable = HTTP 404 |
+| ameba-arduino-pro2 issues | 12 open; highest #398; zero new FCS/VOE/FlashMemory issues |
+| forum.amebaiot.com | Highest indexed: #4847; all 403-blocked; no bug-string matches |
+| Chinese-language sources | mcublog.cn (April 2026) added to sources; content irrelevant; **still zero bug reports** |
+| FlashMemory.cpp | SHA `4fdfbec`; **still NO mutex fix** — 8.5+ months unmodified |
+| video_api.c | March 3, 2026; **unguarded `ftl_common_write()` calls — no fix** |
+| Public web bug strings | **Zero results** for all three bug-signature strings |
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-08 (third 6-hour run).**
+
+---
+
+### Sources Added (Update 2026-05-08, Update 3)
+- mcublog.cn BW21-CBV + Feishu bot article (April 2026; 403-blocked; no FCS bug content; first indexed by this research cycle): https://www.mcublog.cn/software/2026_04/ai-bw21-cbv-led-photo/
