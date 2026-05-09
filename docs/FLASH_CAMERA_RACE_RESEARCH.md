@@ -1,4 +1,3 @@
-
 ## Bug Summary
 
 **Platform:** Realtek RTL8735B (AmebaPro2) / ideasHatch HUB-8735 / 安信可 BW21-CBV  
@@ -3820,3 +3819,84 @@ English and Chinese web searches confirm zero new public discussion of this bug 
 - V4.1.1 stable tag (HTTP 404 — never published): https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases/tag/V4.1.1
 - ameba-arduino-pro2 dev commits (re-confirmed last: `13961cc`, May 5, 2026; no new commits since Update 1): https://github.com/Ameba-AIoT/ameba-arduino-pro2/commits/dev
 - ameba-rtos-pro2 main commits (re-confirmed last: `1c1c8b7`, May 1, 2026; no new commits since Update 1): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
+
+---
+
+## Research Update — 2026-05-09 (Update 3 — 6-hour cycle)
+
+### Finding 153 — Forum Thread #4802 Newly Identified: USB CDC ECM (Quectel EC200U); Unrelated to Bug
+**Source:** Google search results; forum.amebaiot.com thread #4802 (403-blocked)
+https://forum.amebaiot.com/t/amb82-mini-usb-host-cdc-ecm-fails-to-enumerate-quectel-ec200u-4g-modem-ecm-init-fail/4802
+**Priority:** LOW — New thread number logged; no FCS/flash bug relevance
+
+Forum thread **#4802** ("AMB82-Mini USB Host CDC ECM fails to enumerate Quectel EC200U 4G modem — 'ecm init fail'") surfaced in this cycle's search results and was not previously logged. The thread is distinct from the already-documented thread #4821 ("AMB82-mini USB host CDC ECM fail to SIM7600G-H", Finding 100). Both concern USB CDC ECM peripheral failures on AMB82-Mini, but with different 4G modem hardware. The content is HTTP 403-blocked. Neither relates to FlashMemory writes, FCS boot failure, camera initialization, or cold-boot camera errors.
+
+---
+
+### Finding 154 — BW21-CBV-Kit Commercially Available on Amazon (YELUFT, B0FY67YTFN); Widens Affected User Base
+**Source:** Amazon.com product listing (surfaced in Google search results, 2026-05-09)
+https://www.amazon.com/YELUFT-BW21-CBV-Kit-Recognition-Transmission-Wide-Angle/dp/B0FY67YTFN
+**Priority:** LOW — Retail availability observation; no fix content; but affects scope of bug impact
+
+The BW21-CBV-Kit (based on RTL8735B / AmebaPro2) is now available as a consumer retail product on Amazon.com under the YELUFT brand (ASIN B0FY67YTFN). The product description confirms: RTL8735B chip, GC2053 2MP wide-angle camera, dual-band WiFi + Bluetooth 5.1. The board ships with the same Arduino SDK that contains the unpatched `FlashMemory.cpp` mutex omission.
+
+**Significance:** The FlashMemory/FCS race bug is not limited to developer-sourced boards from ideashatch or direct Ai-Thinker channels. It now affects units purchased through mainstream retail distribution. A hobbyist who buys this board, enables Camera FCS Mode (for fast cold boot), and uses `FlashMemory.write()` for persistent settings will encounter the bug with no public documentation or warning available to them.
+
+---
+
+### Finding 155 — All Repositories Confirmed Static; No Fix Found (2026-05-09, Update 3)
+**Source:** Direct fetches of both repositories' commit pages and compare endpoints (2026-05-09, third run)
+https://github.com/Ameba-AIoT/ameba-arduino-pro2/compare/13961cc...dev
+https://github.com/Ameba-AIoT/ameba-rtos-pro2/compare/1c1c8b7...main
+**Priority:** LOW — Status confirmation; no new fix commits
+
+Both compare endpoints return "identical" — no new commits since documented activity:
+
+| Repository | Last commit SHA | Last commit date | Message |
+|---|---|---|---|
+| ameba-arduino-pro2 (dev) | `13961cc` | May 5, 2026 | "Update API for AMB82-zero and SWD off logic" |
+| ameba-rtos-pro2 (main) | `1c1c8b7` | May 1, 2026 | "Sync upstream — wowlan dhcp renew" |
+
+Direct raw fetches of `FlashMemory.cpp` and `video_api.c` confirm: zero `device_mutex_lock` calls in `FlashMemory.cpp`; unguarded `ftl_common_write()` in `video_api.c`. Both files completely unchanged from their last-modified states (September 30, 2025 and March 3, 2026, respectively).
+
+---
+
+### Complete Status Sweep — 2026-05-09 (Update 3)
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | May 5, 2026 — SHA `13961cc` (AMB82-zero SWD) | **No new commits — compare endpoint confirms identical** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (Apr 30, 2026); V4.1.1 stable = HTTP 404; V4.1.2 = HTTP 404 | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` (WLAN dhcp sync) | **No new commits — compare confirms identical** |
+| ameba-arduino-pro2 pull requests | 0 open; 319 closed; no FlashMemory/FCS/mutex PR ever filed | **No fix under review** |
+| ameba-arduino-pro2 issues | 12 open; highest filed: #398 (Mar 29, 2026) | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open; highest: #16 (Jan 2026) | **Zero new relevant issues** |
+| ideashatch/HUB-8735 | Dec 2, 2025; issue #10 only | **Inactive** |
+| ideashatch/HUB-8735-Series_examples | AI/CV examples only; ~54 commits | **No FCS/flash bug content** |
+| Ai-Thinker-Open GitHub org | — | **No BW21-CBV repository** |
+| ameba-arduino-pro2 forks (36 total) | — | **Zero forks contain FlashMemory mutex patch** |
+| forum.amebaiot.com | Thread #4802 newly logged (USB CDC, unrelated); highest indexed ~#4847; all 403-blocked | **No new FCS/flash/camera bug threads** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports — reconfirmed** |
+| bbs.ai-thinker.com (BW21-CBV) | — | **No camera/FCS bug threads** |
+| Amazon.com (BW21-CBV-Kit, YELUFT) | B0FY67YTFN — newly observed retail listing | **Board commercially available; no fix shipped** |
+| FlashMemory.cpp (dev, SHA `4fdfbec`) | Sept 30, 2025 (>8.5 months unmodified) | **Still NO mutex fix — confirmed by direct raw fetch** |
+| video_api.c (main) | March 3, 2026 | **Unguarded ftl_common_write() calls; no mutex fix — confirmed** |
+| Official documentation (ameba-arduino-doc) | April 16, 2026 — SHA `d0b6ca3` | **No new commits; no FlashMemory/FCS warning added** |
+| Public web (`"It don't do the sensor initial process"`) | — | **Zero new indexed results** |
+| Public web (`"FCS KM_status 0x00002081"`) | — | **Zero new indexed results** |
+| Public web (`"device_mutex_lock" "FlashMemory" Ameba`) | — | **Zero results — root cause uniquely documented in this log** |
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-09 (third 6-hour run).**
+
+---
+
+### Sources Added (Update 2026-05-09, Update 3)
+- forum.amebaiot.com thread #4802 (USB CDC ECM Quectel EC200U fail; unrelated to bug; 403-blocked): https://forum.amebaiot.com/t/amb82-mini-usb-host-cdc-ecm-fails-to-enumerate-quectel-ec200u-4g-modem-ecm-init-fail/4802
+- Amazon.com BW21-CBV-Kit YELUFT brand (B0FY67YTFN; RTL8735B/GC2053; retail; unpatched SDK): https://www.amazon.com/YELUFT-BW21-CBV-Kit-Recognition-Transmission-Wide-Angle/dp/B0FY67YTFN
+- ameba-arduino-pro2 compare 13961cc...dev (identical — no new commits): https://github.com/Ameba-AIoT/ameba-arduino-pro2/compare/13961cc...dev
+- ameba-rtos-pro2 compare 1c1c8b7...main (identical — no new commits): https://github.com/Ameba-AIoT/ameba-rtos-pro2/compare/1c1c8b7...main
+- ameba-arduino-pro2 releases (re-confirmed: V4.1.1-QC-V05 latest; V4.1.1 stable = HTTP 404; V4.1.2 = HTTP 404): https://github.com/Ameba-AIoT/ameba-arduino-pro2/releases
+- ameba-arduino-pro2 issues (confirmed 12 open; highest #398 Mar 2026; no new FCS issues): https://github.com/Ameba-AIoT/ameba-arduino-pro2/issues
+- ameba-rtos-pro2 issues (confirmed 3 open; highest #16 Jan 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/issues
+- ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex, SHA `4fdfbec`): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
+- ameba-rtos-pro2 video_api.c main (re-confirmed unguarded ftl_common_write() calls): https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c
