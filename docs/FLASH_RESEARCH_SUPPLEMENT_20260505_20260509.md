@@ -186,7 +186,7 @@ All three confirm Chinese-language AMB82-Mini SDK content exists but covers only
 ## New Findings: May 7, 2026
 
 ### Finding 121 — Both Repos Confirmed Static: No New Commits Since May 5 / May 1
-**Priority:** LOW — ameba-arduino-pro2 dev: `13961cc` (May 5). ameba-rtos-pro2 main: `1c1c8b7` (May 1). Full SHA confirmed: `13961ccfef03e6f42c6e6d29e96a446fca29b71c`. Files: `wiring_digital.c`, `variant.cpp`, `variant.h` — zero overlap with flash/FCS.
+**Priority:** LOW — ameba-arduino-pro2 dev: `13961cc` (May 5). ameba-rtos-pro2 main: `1c1c8b7` (May 1). Unchanged.
 
 ---
 
