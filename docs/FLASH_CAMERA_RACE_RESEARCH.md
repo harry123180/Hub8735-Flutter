@@ -2398,3 +2398,109 @@ None relate to FlashMemory, FCS, camera boot failure, VOE errors, or flash locki
 - ameba-rtos-pro2 commits/main (re-confirmed last: 1c1c8b7, May 1, 2026): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
 - ameba-arduino-pro2 FlashMemory.cpp dev (re-confirmed no mutex, write()/writeWord() unchanged): https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp
 - ameba-rtos-pro2 video_api.c main (re-confirmed two unguarded ftl_common_write() calls): https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/video/driver/RTL8735B/video_api.c
+
+---
+
+## Research Update — 2026-05-12
+
+### Finding 105 — New Commit to ameba-arduino-pro2 dev: AMB82-zero SWD/GPIO; Unrelated to Bug
+**Source:** `ameba-arduino-pro2` — commit `13961cc` (May 5, 2026)
+https://github.com/Ameba-AIoT/ameba-arduino-pro2/commit/13961cc
+**Priority:** LOW — New commit confirmed; not related to FlashMemory or FCS
+
+Commit `13961cc` ("Update API for AMB82-zero and SWD off logic") was pushed to the `dev` branch on **May 5, 2026** by M-ichae-l. Files changed:
+
+- `wiring_digital.c` (+8/-1) — Adds a static `swd_pin_check` guard; replaces `sys_jtag_off()` with a conditional single-execution call to `hal_sys_dbg_port_cfg(DBG_PORT_OFF, TMS_IO_S0_CLK_S0)`
+- `variant.cpp` (+2/-2) — Minor comma formatting corrections
+- `variant.h` (+27/-3) — GPIO pin count updated from 44→45; corrects GND/VDD33 label documentation; adds dual-pin-mapping preprocessor logic for D27, D28, D32, D33, D36, D37 on AMB82-zero
+
+**No changes to FlashMemory, FCS, camera, mutex, device_mutex_lock, RT_DEV_LOCK_FLASH, video_api.c, or any flash-locking mechanism.** This is purely an AMB82-zero hardware pin mapping and SWD debug port configuration change.
+
+This is the only new commit to `ameba-arduino-pro2 dev` since the previous research cycle. The branch's latest SHA is now `13961cc` (previously `e218f33`).
+
+---
+
+### Finding 106 — ameba-rtos-pro2 main: No New Commits Since May 1, 2026
+**Source:** https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main (fetched 2026-05-12)
+**Priority:** LOW — Status confirmation
+
+The `ameba-rtos-pro2` main branch is confirmed at SHA `1c1c8b7` (May 1, 2026, "Sync upstream — wowlan dhcp renew"). No commits have been pushed to the main branch in the 11-day window from May 1 to May 12, 2026. The full confirmed commit list through May 1:
+
+| SHA | Date | Author | Message |
+|---|---|---|---|
+| `1c1c8b7` | May 1 | github-actions[bot] | Sync upstream 43d940446da... (wowlan dhcp renew) |
+| `a111e91` | May 1 | mshung | [amebapro2][wlan] wowlan modify dhcp renew |
+| `7b2b97f` | May 1 | jyunyikuo | [amebapro2][video] support imx681 5m resolution |
+| `63c0a2f` | May 1 | jyunyikuo | [amebapro2][video] update ov12890 iq |
+| `d54e1a8` | May 1 | jyunyikuo | [amebapro2][video] sync voe to 1.7.1.0 |
+| `687a4c7` | May 1 | PLSHHH | [amebapro2][isp] add isp osd with tof sensor example |
+| `2b8812c` | Apr 30 | M-ichae-l | Add arduino_libarduino_tool |
+
+No FCS, FlashMemory, mutex, or flash-locking changes in any of these commits.
+
+---
+
+### Finding 107 — bbs.ai-thinker.com Thread #47223: BW21 Digital Camera DIY Project (403-Blocked)
+**Source:** https://bbs.aithinker.com/forum.php?mod=viewthread&tid=47223 (403-blocked; Google snippet only)
+**Priority:** LOW — New thread logged; no FCS bug relevance; highest-numbered BW21 thread observed to date
+
+Thread `tid=47223` ("【电子DIY作品】BW21数码相机+BW21-CBV-KIT") on bbs.aithinker.com describes a digital camera DIY project using the BW21-CBV-KIT development board. The thread number is higher than the previously documented highest BW21-CBV thread (`tid=47062`, unboxing post logged in Finding 85). The content (403-blocked) is a maker project assembling a standalone camera device using the BW21-CBV-KIT. No Google-indexed snippet contains any mention of flash write errors, FCS cold-boot failure, VOE initialization errors, or sensor initial process failures.
+
+**The gap from tid=47062 → tid=47223 (+161 threads) indicates continued community forum activity on AI-Thinker's platform.** Despite this activity, **zero BW21-CBV/RTL8735B-related threads on bbs.aithinker.com discuss the FlashMemory/FCS race bug** as of this research cycle.
+
+---
+
+### Finding 108 — Forum Thread #4726: IMX662 ISP Tuning; FCS Files Mentioned in Passing; Not Related to Bug
+**Source:** forum.amebaiot.com thread #4726 — "ISP tuning required for Sony IMX662 on Ameba Mini" (403-blocked; Google snippet)
+https://forum.amebaiot.com/t/isp-tuning-required-for-sony-imx662-on-ameba-mini/4726
+**Priority:** LOW — Thread mentions FCS files as part of normal ISP bring-up; no FlashMemory/FCS race content
+
+Thread #4726 (approximately February 13, 2026) discusses ISP IQ tuning requirements for adding a Sony IMX662 sensor to the AMB82-Mini. The Google-indexed snippet mentions `fcs_data_imx662.bin`, `iq_imx662.bin`, and `sensor_imx662.bin` as files that must be provided for a new sensor bring-up — this is the standard FCS binary-file distribution mechanism, not a bug report. The thread does not mention `FlashMemory.write()`, cold-boot failures, FCS KM_status errors, or the SPI mutex race. The FCS reference is incidental (file naming convention), not a symptom of our bug.
+
+---
+
+### Finding 109 — mcublog.cn April 2026 Article: BW21-CBV Used for Feishu Robot (Photo/LED Control); Unrelated
+**Source:** https://www.mcublog.cn/software/2026_04/ai-bw21-cbv-led-photo/ (403-blocked; Google snippet)
+**Priority:** LOW — New BW21-CBV content observed; no FCS bug discussion
+
+An article on mcublog.cn from April 2026 describes using the BW21-CBV development board connected to a Feishu (飞书) robot for LED control and remote photography. The title is "我让AI帮我把BW21-CBV开发板接入了飞书机器人，不光能控制点灯，还能拍照看照片" ("I got AI to connect my BW21-CBV board to a Feishu robot: not just LED control, also photos"). The article content is 403-blocked; the title confirms it is a maker/hobbyist project, not a debugging report. No mention of flash write errors, FCS cold-boot failure, or camera initialization issues in the indexed content.
+
+---
+
+### Finding 110 — Complete Status Sweep: Bug Unpatched as of 2026-05-12
+**Source:** Exhaustive sweep of all tracked sources (2026-05-12)
+**Priority:** LOW — Status confirmation
+
+| Repository / Source | Last activity | Status |
+|---|---|---|
+| ameba-arduino-pro2 (dev branch) | **May 5, 2026** — SHA `13961cc` ("Update API for AMB82-zero and SWD off logic") | **No FlashMemory/FCS fix — AMB82-zero GPIO/SWD only** |
+| ameba-arduino-pro2 (releases) | V4.1.1-QC-V05 (April 30, 2026 internal build); V4.1.1 stable: HTTP 404 | **No new release** |
+| ameba-rtos-pro2 (main branch) | May 1, 2026 — SHA `1c1c8b7` (WLAN dhcp sync) | **No new commits — confirmed** |
+| ameba-arduino-pro2 pull requests | 0 open | **No fix under review** |
+| ameba-arduino-pro2 issues | 17 open; highest filed: #398 (Mar 29, 2026) | **Zero new FCS/FlashMemory/VOE issues** |
+| ameba-rtos-pro2 issues | 3 open; highest: #16 (Jan 2026) | **Zero new relevant issues** |
+| ideashatch/HUB-8735 | Dec 2, 2025 | **Inactive** |
+| Ai-Thinker-Open GitHub org | — | **No BW21-CBV repository** |
+| ameba-arduino-pro2 forks (36 total) | Various | **Zero forks contain FlashMemory mutex patch** |
+| forum.amebaiot.com | All threads 403-blocked; #4726 newly logged (IMX662 ISP, unrelated); highest observed: ~#4834 | **No accessible content; no new FCS/flash bug threads** |
+| CSDN / Zhihu / 21ic / EEWorld | — | **Zero Chinese-language reports — reconfirmed** |
+| bbs.aithinker.com (BW21-CBV) | Thread #47223 newly logged (BW21 camera DIY); 403-blocked | **No FCS/flash bug content in any BW21 thread** |
+| mcublog.cn (BW21-CBV) | April 2026 article (Feishu robot, photo); 403-blocked | **No FCS bug content** |
+| FlashMemory.cpp (dev, SHA 4fdfbec) | Sept 30, 2025 | **Still NO mutex fix — re-confirmed by direct raw fetch** |
+| video_api.c (main) | March 3, 2026 | **Still NO mutex fix at FCS call site — confirmed** |
+| Official documentation (ameba-arduino-doc) | April 16, 2026 | **No FlashMemory/FCS warning added** |
+| Public web (`"It don't do the sensor initial process"`) | — | **Zero new indexed results** |
+| Public web (`"FCS KM_status 0x00002081"`) | — | **Zero new indexed results** |
+| Public web (`"device_mutex_lock" "FlashMemory" Ameba`) | — | **Zero results — root cause uniquely in this log** |
+
+**No HIGH priority confirmed fix found. Bug status: publicly undocumented and unpatched as of 2026-05-12.**
+
+---
+
+### Sources Added (Update 2026-05-12)
+- ameba-arduino-pro2 commit 13961cc (AMB82-zero SWD/GPIO, May 5, 2026; unrelated to bug): https://github.com/Ameba-AIoT/ameba-arduino-pro2/commit/13961cc
+- ameba-arduino-pro2 commits/dev (confirmed new last: 13961cc, May 5, 2026): https://github.com/Ameba-AIoT/ameba-arduino-pro2/commits/dev
+- ameba-rtos-pro2 commits/main (confirmed last: 1c1c8b7, May 1, 2026; no new commits): https://github.com/Ameba-AIoT/ameba-rtos-pro2/commits/main
+- bbs.aithinker.com thread #47223 (BW21 digital camera DIY; 403-blocked; no FCS bug content): https://bbs.aithinker.com/forum.php?mod=viewthread&tid=47223
+- forum.amebaiot.com thread #4726 (IMX662 ISP tuning; FCS files mentioned incidentally; 403-blocked): https://forum.amebaiot.com/t/isp-tuning-required-for-sony-imx662-on-ameba-mini/4726
+- mcublog.cn BW21-CBV Feishu robot article (April 2026; unrelated; 403-blocked): https://www.mcublog.cn/software/2026_04/ai-bw21-cbv-led-photo/
