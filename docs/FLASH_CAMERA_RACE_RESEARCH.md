@@ -361,3 +361,43 @@ This remains theoretical — no public implementation exists.
 
 **No confirmed fix. Bug remains unpatched as of 2026-05-15 (Cycle U10).  
 Top unresolved action: hardware test of "Camera FCS Mode = Disable" — mechanism confirmed by source code; no public hardware test result found in any accessible web source.**
+
+## Research Update — 2026-05-15 (Cycle U11)
+
+**Search scope:** ameba-rtos-pro2 commits after May 15; ameba-arduino-pro2 issues/releases after May 5; forum.amebaiot.com new threads; GitHub Discussions; English/Chinese community sources; FlashMemory.cpp source re-verification; "[SPIF Err]Invalid ID" error documentation; SDK flash layout documentation.
+
+**Key new findings this cycle:** Both repos remain frozen. Three previously untracked forum threads newly identified (2929, 4811, 4541). "[SPIF Err]Invalid ID" error confirmed in thread #4834 context — represents a more severe boot failure variant where the flash chip itself cannot be identified at boot, extending the known severity ladder. No new fixes, no new public hardware tests of the FCS Disable workaround.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| ameba-rtos-pro2 commits (fetched 2026-05-15) | **Still frozen.** Direct fetch of commits page confirms newest commit remains `3f95070` "Sync upstream 7343927…" (May 15, 2026) — identical to U9/U10. Zero new commits in 0 days. No flash, FCS, VOE, sensor, or boot changes. | LOW |
+| ameba-arduino-pro2 issues page (fetched 2026-05-15) | **17 open issues confirmed, none bug-related.** Newest issue is #398 (Mar 29, 2026, raw video access feature request). No issues filed for camera, flash, FCS, VOE, or boot failure. Bug remains entirely unreported on the official tracker. | LOW |
+| forum.amebaiot.com/t/.../4834 — "[SPIF Err]Invalid ID" detail | **New error detail from thread #4834 "Boot failure after OTA update":** Web search snippets confirm this thread contains the error string "[SPIF Err]Invalid ID" and "[BOOT Err]Flash init error" — the boot ROM's SPIF controller cannot read the JEDEC identification bytes from the flash chip at all. Mechanism: if the WIP (Write-In-Progress) bit is active at power-up after an incomplete or just-finished erase, the flash chip holds MISO high and does not respond to the RDID command; boot ROM logs "Invalid ID" and halts flash init entirely. This is a **more severe** failure mode than FCS_I2C_INIT_ERR (which occurs later in boot after flash is successfully initialized). Adds a new severity tier to the known failure ladder. Thread content still 403-blocked. | MEDIUM |
+| forum.amebaiot.com/t/amb82-mini-camera-not-sending-data-to-image-processor/2929 | **Newly identified thread** (previously untracked). Title: "AMB82-Mini Camera Not Sending Data to Image Processor." Documents "[VOE] osd2enc receive timeout" and "[VOE] isp2osd receive timeout" errors — OSD-to-encoder and ISP-to-OSD pipeline timeout errors. These are distinct from our FCS_I2C_INIT_ERR failure (which occurs in the bootloader before OS camera init). Not confirmed as flash-write-triggered. Thread content blocked (403). | LOW |
+| forum.amebaiot.com/t/camera-sketch-errors-warnings/4811 | **Newly identified thread** (previously untracked). Title: "camera sketch errors/warnings." Content blocked (403). Thread number is higher than 4777 (Mar 2026) suggesting it was posted after March 2026. Possibly documents camera initialization warning messages from an Arduino sketch. No snippet content accessible to determine relevance to our bug. | LOW |
+| forum.amebaiot.com/t/ameba-mini-with-gc4653-camera-sensor/4541 | **Newly identified thread** (previously untracked). Title: "Ameba Mini with GC4653 camera sensor." Web search suggests it discusses using flash memory with the GC4653 sensor. Content blocked (403). GC4653 is one of the 11 sensors in the AMB82-Mini Tools menu. | LOW |
+| FlashMemory.cpp direct source fetch (2026-05-15) | **Re-confirmed from source:** No WIP polling, no mutex acquisition, no `dcache_invalidate_by_addr` call in any FlashMemory operation. After `flash_write_word()`, code reads back to verify but provides no retry beyond one full sector rewrite attempt. This is consistent with all prior findings (U7 Finding 205) — confirmed unchanged. | LOW |
+| ameba-arduino-pro2 GitHub Discussions | **Does not exist** — GitHub Discussions are not enabled for this repository (returns 404). No community discussion channel beyond Issues exists on GitHub. | LOW |
+| All Chinese-language sources (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com, May 15 sweep) | Two Zhihu BW21-CBV articles identified (p/24778003595 — HomeAssistant integration; p/1933901413328586556 — fall detection DIY) — both return 403. bbs.ai-thinker.com BW21-CBV threads (MQTTS, OLED, BLE, gesture recognition) confirmed indexed in search results but all 403-blocked. No new Chinese-language content about FCS flash-write camera failure found anywhere. | LOW |
+
+**Extended severity ladder (revised with Cycle U11 data):**
+
+| Flash operations | Next boot failure mode | Error(s) observed |
+|---|---|---|
+| 0 writes | Always OK | — |
+| 1× `flash_write_word` (4 bytes, no erase) | Stable | — |
+| 70× `flash_write_word` (280 bytes, no erase) | `[VOE][WARN]slot full` deadlock | `FCS_BYPASS_WHILE1_KM (0x0083)` |
+| Any sector erase | VOE camera complete fail | `FCS_RUN_DATA_NG_KM (0x2081)` + `FCS_I2C_INIT_ERR (0x200A)` |
+| OTA flash write → immediate reboot (thread #4832) | Console silent, no boot messages | Unknown (soft-reset D-cache path) |
+| Flash write/erase → power-cycle with WIP still active (thread #4834) | Flash chip not recognized at boot | `[SPIF Err]Invalid ID` + `[BOOT Err]Flash init error` |
+
+The "[SPIF Err]Invalid ID" tier is the most severe: the boot ROM cannot initialize the SPI flash controller at all, so the entire system is bricked until the flash operation completes and the device is power-cycled again. This is consistent with the Zephyr WIP-bit boot failure precedent (logged in prior cycles).
+
+**SDK state as of 2026-05-15 (Cycle U11 — unchanged):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix
+- Latest pre-release: V4.1.1-QC-V05 (Mar 6, 2026) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (newest: `3f95070`, `afc85a0`)
+- ameba-arduino-pro2 dev/main: Frozen at May 5, 2026 (SHA `13961cc`)
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-15 (Cycle U11).  
+Top unresolved action: hardware test of "Camera FCS Mode = Disable" — mechanism confirmed by source; still no public hardware test result in any accessible source.**
