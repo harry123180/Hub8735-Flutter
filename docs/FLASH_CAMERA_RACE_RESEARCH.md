@@ -499,3 +499,57 @@ If the cold-boot failure is caused by the WIP bit being active at power-on, then
 **Two highest-priority open actions:**
 1. **Hardware test of "Camera FCS Mode = Disable"** — mechanism confirmed from source; no public test result exists.
 2. **Hardware test of `hal_flash_wait_ready()` before power-down** — new hypothesis: if WIP bit is the cold-boot root cause, waiting for flash idle before power-off may fix the severe (sector-erase) case while preserving FCS fast-boot.
+
+## Research Update — 2026-05-16 (Cycle U14)
+
+**Search scope:** Four parallel agents: (1) GitHub — all repos post-May 15 activity, code search for FCS error symbols; (2) English forum/web — new threads, FCS disable workaround reports, error string indexing; (3) Chinese sources — comprehensive sweep (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Gitee/Bilibili); (4) SDK deep-dive — `hal_flash_wait_ready` availability, WIP polling chain from `hal_flash_ns.c` / `hal_spic_ns.c`, `spic_ns_tx_cmd` vs `spic_ns_tx_cmd_no_check`, partition table from `amebapro2_partitiontable.json`, W25Q128JV timing datasheet.
+
+**Key new findings this cycle:**
+- **`hal_flash_wait_ready` IS publicly declared** in `hal_flash.h` (L108) — U13 stated "not found in any public RTL8735B code"; this was incorrect; Agent 4 retrieved it from the header directly.
+- **WIP polling correction (major):** The NS-domain `flash_ns_sector_erase` → `spic_ns_tx_cmd` path DOES call `flash_ns_wait_ready` internally (hal_spic_ns.c L860/863). The characterization from U13 ("erase is fire-and-forget at the C layer") was wrong for the NS path — the erase function blocks until WIP clears before returning. The secure-domain `hal_flash_sector_erase` (ROM stub, `hal_flash.c` L730–742) remains unverifiable.
+- **Partition table from JSON** (`amebapro2_partitiontable.json`): fcsdata = 0x8000–0x9000 (4 KB), `nn` ends at 0xF00000, `mp` = 0xFC0000–0xFC1000, FlashMemory default = 0xFD0000+. Zero adjacency between FlashMemory region and fcsdata — address overlap hypothesis fully refuted.
+- **W25Q128JV datasheet timing confirmed:** tSE (4KB sector erase) = 45 ms typ / **400 ms max**; tPP (page program) = 0.7 ms typ / 3 ms max. The severity gradient (4-byte stable → 280-byte mild → sector-erase complete) correlates with WIP window duration if power is cut mid-operation.
+- All repos confirmed frozen; no new releases; no new forum threads above #4811 about our bug; zero new Chinese-language content.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| `hal_flash.h` L108 (ameba-rtos-pro2, public) | **`hal_flash_wait_ready` is publicly declared:** `void hal_flash_wait_ready(phal_spic_adaptor_t phal_spic_adaptor)`. Delegates to ROM stub via `hal_flash_stubs.hal_flash_wait_ready()`. `flash_ns_wait_ready` (`hal_flash_ns.h` L82, NS-world variant) polls status register S0 (WIP bit) until clear; Micron variant polls rdsr2 bit 7. Prior statement in U13 that this function "does not exist in any public RTL8735B code" was incorrect. Calling this from Arduino would require obtaining the `phal_spic_adaptor_t` pointer (internal to the flash HAL, not exposed by `FlashMemory.h`); direct use from an Arduino sketch is non-trivial. | MEDIUM |
+| `hal_spic_ns.c` L806–876 vs L885–952 (ameba-rtos-pro2, public) | **WIP polling correction — NS path.** `spic_ns_tx_cmd` (write/erase path): calls both `spic_ns_wait_ready` (controller busy) and `flash_ns_wait_ready` (device WIP) after the SPI transfer — erase blocks until complete. `spic_ns_tx_cmd_no_check` (read path): only calls `spic_ns_wait_ready` (controller), skips `flash_ns_wait_ready` (device WIP). Reads therefore do NOT check device WIP before executing — a read issued immediately after a just-triggered erase could theoretically return erased/undefined data. This does NOT affect the cold-boot root cause (cold boot power is off), but it affects read-after-write correctness in user code. | MEDIUM |
+| `amebapro2_partitiontable.json` (ameba-rtos-pro2, `project/realtek_amebapro2_v0_example/GCC-RELEASE/mp/`) | **Definitive partition layout retrieved:** `sysdata`=0x7000 (4KB), `fcsdata`=0x8000 (4KB), `boot_p`=0x9000, `boot_s`=0x30000, `fw1`=0x60000, `iq`=0x460000, `fw2`=0x520000, `nn`=0x920000–0xF00000, `mp`=0xFC0000–0xFC1000. Region 0xF00000–0xFBFFFF is unallocated. FlashMemory default (0xFD0000) is in unallocated space above `mp`. No address adjacency exists between FlashMemory and fcsdata (0x8000). **Address-overlap/digest-corruption hypothesis is fully and definitively refuted for the 0xFD0000 FlashMemory region.** | MEDIUM |
+| W25Q128JV datasheet (Winbond, Rev F 2018-03-27, Mouser mirror) | **Exact WIP timing confirmed:** tSE (4KB sector erase) = 45 ms typical / 400 ms maximum. tPP (256B page program) = 0.7–0.8 ms typ / 3 ms max. Chip erase = 40 s typ / 200 s max. WIP bit (S0) = 1 while any erase/program/write-status is executing; flash ignores all new instructions except RDSR and suspend while busy. RTL8735B supports Winbond (0xEF), MXIC, GigaDevice (0xC8), XTX, EON, and Micron flash types; W25Q128JV is the standard part on AMB82-Mini boards. | LOW |
+| Revised WIP-at-boot mechanism (synthesis, this cycle) | **Narrowed failure mode:** Because the NS erase path DOES poll WIP to completion, the erase function does NOT return until the flash device is idle. Therefore the WIP-at-boot failure requires power to be cut **during** the erase operation (before the function returns), not after. The 400 ms maximum window for a 4KB sector erase creates a realistic probability of power loss during operation (e.g., device losing battery, abrupt power-off after triggering erase). This maps to the severity gradient: tPP ≈ 1–3 ms (tiny risk window for 4-byte write) vs tSE ≈ 45–400 ms (large risk window for sector erase). If the user's system cannot cut power during a 400 ms window (e.g., hardware power latch after flash write), the WIP-at-boot path does not apply. | MEDIUM |
+| `hal_flash.c` L730–742 — ROM secure stub | **Secure-domain `hal_flash_sector_erase` behavior unverified.** Delegates to `hal_flash_stubs.hal_flash_sector_erase()` (ROM function pointer). If FlashMemory.cpp routes through the NS path (likely for non-secure world code), WIP IS polled. If it routes through the secure stub, WIP polling is unknown. The path taken by Arduino's `flash_erase_sector()` call chain cannot be confirmed from public source alone. | LOW |
+| forum.amebaiot.com thread #4811 (confirmed via Agent 2) | **Thread #4811 content confirmed:** "Camera_2_Lcd_JPEGDEC.ino error/warning" — a general camera sketch error/warning thread, NOT a camera cold-boot failure. Previously unconfirmed. Content still 403-blocked; title extracted from search snippet. | LOW |
+| bbs.aithinker.com tid=46140 "BW21-CBV-Kit調試" (Agent 3, first appearance) | **Newly identified Chinese-language thread:** Title = "BW21-CBV-Kit debugging." Google search snippet reveals content is about **SWD-pin/I2C conflict** — user accidentally used SWD debug pins for I2C camera control, causing I2C communication failure (different hardware bug class, not FCS flash-write). Not our bug. URL: `https://bbs.aithinker.com/forum.php?mod=viewthread&tid=46140` (HTTP 403 blocked). | LOW |
+| `ameba-doc-rtos-pro2-sdk.readthedocs-hosted.com/en/latest/application_note/08_FLASHLAYOUT.html` | **New documentation URL:** RTL8735B flash layout application note — the official partition documentation. Returns HTTP 403 (developer login required). Would likely confirm or extend the partition table findings from `amebapro2_partitiontable.json`. | LOW |
+| All GitHub repos (ameba-rtos-pro2, ameba-arduino-pro2, ideashatch, Ai-Thinker-Open), fetched 2026-05-16 | **All repos confirmed frozen.** ameba-rtos-pro2 HEAD = `3f95070` (May 15, 2026); ameba-arduino-pro2 main HEAD = `93d63514` (Mar 2); dev HEAD = `13961ccf` (May 5); ideashatch/HUB-8735 last commit Dec 2025. No V4.1.1 stable release; no QC-V06+. No new issues, PRs, or commits in any repo. Two independent agents confirmed identical freeze state. | LOW |
+| GitHub code search: `FCS_I2C_INIT_ERR`, `FCS_RUN_DATA_NG_KM`, `hal_flash_wait_ready RTL8735B` | `FCS_I2C_INIT_ERR` = 13 hits (all `rtl8735b_voe_status.h`); `FCS_RUN_DATA_NG_KM` = 17 hits (all `video_boot.c` variants). `hal_flash_wait_ready` has no search hits specific to RTL8735B camera/FCS context — function exists but no usage example connecting it to FCS workaround. No other repositories publicly document this bug. | LOW |
+| All Chinese-language sources (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Gitee/Bilibili, May 16) | **Zero new content.** All Chinese community sites remain 403-blocked (bbs.aithinker.com, bbs.ai-thinker.com, CSDN articles, Zhihu). Bilibili, EEWorld, 21IC, Gitee return zero results for FCS flash-write camera failure on BW21-CBV/RTL8735B. No Chinese-language content on this bug exists in 14 research cycles. | LOW |
+
+**Revised cold-boot mechanism — WIP hypothesis refinement:**
+
+Since the NS erase path polls WIP to completion, the "cold-boot from power-cut-during-erase" scenario requires the user's hardware to lose power **during** the up-to-400 ms erase window. This is plausible for battery-powered devices or systems with external power control. For devices that remain powered continuously, this path does not apply, and a separate mechanism must explain the cold-boot failure.
+
+The two most plausible cold-boot mechanisms (if power is NOT cut during the erase) remain:
+1. The secure-domain `hal_flash_sector_erase` ROM stub may be the actual path taken by FlashMemory and may NOT poll WIP — leaving WIP active at function return.
+2. The erase operation at 0xFD0000 (even though in unallocated space) disturbs the SPI flash controller state in a way the boot ROM does not handle on the next cold boot.
+
+**Revised workaround table:**
+
+| Workaround | Mechanism | Status | Confidence |
+|---|---|---|---|
+| "Camera FCS Mode = Disable" | Dummy blob → invalid magic → KM bypass (0x0083), never reaches I2C | Mechanistically confirmed from `postbuild.cpp`, `video_boot.c`, `video_api.c` | HIGH (source-confirmed, no hardware test) |
+| `hal_flash_wait_ready()` after erase | Ensures WIP clears before power-down; requires internal adaptor pointer | Technically available in `hal_flash.h` L108; not accessible from `FlashMemory.h` API | LOW (untested, API access non-trivial from Arduino) |
+| Add 500ms delay after `flash_erase_sector()` | Allows tSE worst-case (400ms) to complete before power-down | Simple Arduino workaround if power cut is the root cause | LOW (untested, only applicable to WIP-at-boot path) |
+
+**SDK state as of 2026-05-16 (Cycle U14 — unchanged):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix
+- Latest pre-release: V4.1.1-QC-V05 (Mar 6, 2026) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (`3f95070`, `afc85a0`)
+- ameba-arduino-pro2 dev/main: Frozen at May 5, 2026 (`13961cc`)
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-16 (Cycle U14).**
+
+**Top unresolved actions (unchanged from U13):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — source-confirmed mechanism; no public hardware test result exists anywhere.
+2. **Determine which flash erase path FlashMemory.cpp actually invokes** — NS path (WIP polled) vs ROM secure stub (WIP unknown). If ROM stub, WIP-at-boot is a viable cold-boot root cause even without power being cut during erase.
