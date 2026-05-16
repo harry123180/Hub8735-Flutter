@@ -401,3 +401,57 @@ The "[SPIF Err]Invalid ID" tier is the most severe: the boot ROM cannot initiali
 
 **No confirmed fix. Bug remains unpatched as of 2026-05-15 (Cycle U11).  
 Top unresolved action: hardware test of "Camera FCS Mode = Disable" — mechanism confirmed by source; still no public hardware test result in any accessible source.**
+
+## Research Update — 2026-05-16 (Cycle U12)
+
+**Search scope:** Four parallel agents: (1) GitHub — all repos post-May 15 activity; (2) English forum/web — new threads, error code indexing, workaround reports; (3) Chinese sources — comprehensive sweep; (4) SDK deep-dive — `video_boot.c` full FCS Disable boot path trace, `NONE_FCS_MODE` analysis, flash address safety table.
+
+**Key new findings this cycle:**
+- FCS Disable boot sequence fully traced from SDK source — workaround is mechanistically complete; KM enters `FCS_BYPASS_WHILE1_KM` (0x0083) with dummy blob, never reaches I2C; `NOR_FLASH_FCS` (0xF0D000) never read; camera reinitializes via application layer
+- **"It don't do the sensor initial process" appears in BOTH the bug state AND the FCS Disable state** — the message alone does not indicate camera failure; it indicates the bootloader skipped sensor init, which is expected when FCS is disabled
+- `NONE_FCS_MODE` is baked into prebuilt `libvideo_ntz.a` as always-1; independent of Arduino `Arduino_FCS_MODE` compile flag
+- Thread #4302 new snippet detail: user had FCS Mode: **Disable** but got `[VOE]frame_end: sensor didn't initialize done!` — a **different** error from our `FCS_I2C_INIT_ERR` (frame pipeline timeout vs KM boot-ROM I2C failure); may indicate a race condition in the non-FCS camera init path
+- All repos confirmed frozen since May 15, 2026; no new releases, issues, or commits anywhere
+- Zero new Chinese-language content; zero new English public reports of this specific bug
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| `video_boot.c` `video_btldr_init_sensor_process()` (lines 29–44) | **"It don't do the sensor initial process" appears in BOTH the FCS fail state AND the FCS Disable state.** Weak default `user_load_sensor_boot()` always returns 0 → message printed → bootloader-level sensor init returns -1. With FCS Disabled, camera STILL initializes via application-layer `video_init()` / `video_init_peri()` / `video_open()`. The message alone does NOT indicate camera failure. | MEDIUM |
+| `video_boot.c` `video_btldr_process()` (line 691) + `video_api.c` `video_init_peri()` (line 1518) | **FCS Disable boot sequence fully traced:** (1) Dummy blob → no MFCS magic → KM enters `FCS_BYPASS_WHILE1_KM` (0x0083); (2) `hal_voe_fcs_check_OK()` = 0 → FCS init block skipped; (3) `user_boot_config_init()` never called → `NOR_FLASH_FCS (0xF0D000)` never read; (4) Application `video_init_peri()` L1518 checks `!hal_video_check_fcs_OK()` → TRUE → re-registers all GPIO/I2C pins, powers sensor via GPIO (L1566), registers I2C (L1581) → full camera initialization from scratch. **The `FCS_I2C_INIT_ERR` cold-boot failure path cannot be triggered with FCS Disabled.** | HIGH |
+| `video_api.c` `NONE_FCS_MODE` macro analysis | **`NONE_FCS_MODE` is baked into the prebuilt `libvideo_ntz.a` as always-1** — not controlled by the Arduino `Arduino_FCS_MODE` compile flag. The two flags are independent: `Arduino_FCS_MODE` (boards.txt) affects post-build image packaging (which ISP IQ JSON is used); `NONE_FCS_MODE` controls the always-compiled-in `video_get_fw_isp_info()` application-layer fallback sensor info path. `NONE_FCS_MODE = 1` is therefore always active regardless of FCS mode setting. | MEDIUM |
+| Flash address safety analysis (`video_boot.c` + `postbuild.cpp`) | **With FCS Disabled, neither FCS-sensitive flash region is accessed during cold boot:** PT_FCSDATA (0x8000 region) — KM enters bypass before any meaningful address read; NOR_FLASH_FCS (0xF0D000) — `user_boot_config_init()` is never called. Any `FlashMemory.write()`/`erase()` touching either region is harmless to camera boot reliability with FCS Disabled. Only raw bootloader/partition-table regions (< 0x8000) remain always-dangerous. | HIGH |
+| forum.amebaiot.com/t/voe-frame-end-sensor-didnt-initialize-done/4302 (Aug 2025) — Google snippet | **Thread #4302 new detail from snippet:** User explicitly had "Camera FCS Mode: Disable" + JXF37 sensor and got `[VOE]frame_end: sensor didn't initialize done!`. This is a DIFFERENT error from our `FCS_I2C_INIT_ERR` — it occurs in the frame pipeline AFTER camera initialization, not during boot-ROM KM init. May indicate a race condition in the non-FCS application-layer camera init path (sensor not fully ready before first frame capture). Does NOT refute the FCS Disable workaround for our specific bug, but suggests FCS Disable may introduce a separate, lower-severity camera reliability risk. Thread content still 403 blocked. | MEDIUM |
+| All GitHub repos (Ameba-AIoT, ideashatch, Ai-Thinker-Open), fetched 2026-05-16 | **All repos frozen since May 15, 2026.** ameba-rtos-pro2 HEAD = `3f95070` (May 15); ameba-arduino-pro2 main HEAD = `93d63514` (Mar 2); dev = `13961ccf` (May 5); ideashatch/HUB-8735 last commit Dec 2025; latest HUB-8735 release = V4.0.15_HUB8735 (Apr 2025, tracks upstream 4.0.9). No V4.1.1 stable release, no QC-V06+, no new issues filed. | LOW |
+| English web (all search engines, forums, community sites) | **Still zero indexed results** for `"FCS KM_status 0x00002081"`, `"FCS_I2C_INIT_ERR"`, `"FCS_RUN_DATA_NG_KM"`, `"It don't do the sensor initial process"`, `"VOE_OPEN_CMD fail"`. This research log remains the only public documentation of this bug and its error codes. | LOW |
+| Chinese-language sources (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Gitee/Bilibili, May 16) | No new Chinese-language content about FCS flash-write camera failure. All Chinese community sites remain 403-blocked. Google-indexed snippets from Chinese sites show only unrelated BW21-CBV DIY projects (fall detection, HomeAssistant, surveillance). No technical FCS articles found. | LOW |
+
+**Workaround confidence assessment — complete mechanistic chain (Cycle U12):**
+
+| Boot-path chain link | Evidence source |
+|---|---|
+| Dummy blob written to PT_FCSDATA (no MFCS magic `0x5343464D`) | `postbuild.cpp` L428, L445–450, L680 |
+| KM reads magic → validation fails → enters `FCS_BYPASS_WHILE1_KM` (0x0083) | `rtl8735b_voe_status.h` L158 |
+| KM never reaches GPIO init (0x2009) or I2C init (0x200A) | KM error code table in `voe_status.h` |
+| `hal_voe_fcs_check_OK()` returns 0 → FCS init block skipped in bootloader | `video_boot.c` L691 |
+| `user_boot_config_init()` not called → `NOR_FLASH_FCS (0xF0D000)` never read | `video_boot.c` gating on `hal_voe_fcs_check_OK()` |
+| "It don't do the sensor initial process" printed (expected, not a failure) | `video_boot.c` L29–44 |
+| `video_init_peri()` L1518: `!hal_video_check_fcs_OK()` → full GPIO/I2C re-register, sensor power-on, I2C registration | `video_api.c` L1518, L1566, L1581 |
+| Camera streams normally (slower start, no FCS fast-boot) | Official docs, `boards.txt` |
+
+**Remaining risk:** Thread #4302 shows a user with FCS Mode: Disable experiencing `[VOE]frame_end: sensor didn't initialize done!` — a frame pipeline timeout distinct from the KM I2C boot failure. This may be a race condition in the non-FCS camera init path unrelated to flash writes. The relationship to flash writes is unconfirmed (thread content 403-blocked).
+
+**Recommended hardware test sequence (unchanged):**
+1. Enable "Camera FCS Mode = Disable" in Arduino IDE Tools menu → rebuild + flash
+2. Run `flash_erase_sector()` → power cycle → verify `VOE_OPEN_CMD fail` / `FCS_I2C_INIT_ERR` does NOT occur
+3. Observe "It don't do the sensor initial process" appears (expected, not a failure)
+4. Verify camera streams (expect 1–3s longer startup than FCS-enabled)
+5. Monitor for `[VOE]frame_end: sensor didn't initialize done!` — if seen, may be unrelated race condition
+
+**SDK state as of 2026-05-16 (Cycle U12 — unchanged):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix
+- Latest pre-release: V4.1.1-QC-V05 (Mar 6, 2026) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (`3f95070`, `afc85a0`)
+- ameba-arduino-pro2 dev/main: Frozen at May 5, 2026 (`13961cc`)
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-16 (Cycle U12).
+Workaround ("Camera FCS Mode = Disable") is mechanistically confirmed from full source-code analysis but still lacks hardware validation. This is the highest-priority open action.**
