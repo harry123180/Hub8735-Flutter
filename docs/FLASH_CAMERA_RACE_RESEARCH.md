@@ -455,3 +455,47 @@ Top unresolved action: hardware test of "Camera FCS Mode = Disable" — mechanis
 
 **No confirmed fix. Bug remains unpatched as of 2026-05-16 (Cycle U12).
 Workaround ("Camera FCS Mode = Disable") is mechanistically confirmed from full source-code analysis but still lacks hardware validation. This is the highest-priority open action.**
+
+## Research Update — 2026-05-16 (Cycle U13)
+
+**Search scope:** Four parallel agents: (1) GitHub — all repos post-May 15, 2026 activity; (2) English forum/web — new threads, FCS disable workaround reports, readthedocs ISP docs; (3) Chinese sources — comprehensive sweep (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Gitee/Bilibili); (4) SDK technical deep-dive — `hal_flash_ns.c` actual non-secure world implementation, `hal_voe_export_ctrl.h` new enum values, `voe_isp_export_ld_info_digest_check_from_nor` digest scope.
+
+**Key new findings this cycle:**
+- `flash_ns_sector_erase` in `hal_flash_ns.c` (the actual non-secure implementation, not just the stub wrapper) confirmed: sends SE opcode and returns immediately with **zero WIP polling**. `flash_ns_wait_ready` (which polls `rdsr & 0x1`) is a separate function never called from erase or page-program.
+- `voe_isp_export_ld_info_digest_check_from_nor` digest scope partially clarified: `digest_obj` parameter maps to `VOE_EXPORT_LD_ISP_IMG_MULTI_FCS_HDR = 0x04` and FCS sensor-set enum IDs (0x10–0x19). The digest covers FCS multi-sensor header data specifically, which partially limits the digest-corruption cold-boot hypothesis.
+- New forum thread #4748 identified: user compiled custom `voe.bin` + `sensor_f37.bin`, placed in SDK `voe_bin/` folder, sensor failed to initialize — VOE binary is the critical sensor-init component.
+- `ameba-doc-rtos-pro2-sdk.readthedocs-hosted.com/en/latest/application_note/15_ISP.html` surfaced as the most complete FCS documentation URL — returns 403; requires developer login.
+- All tracked repos confirmed frozen at the same HEAD as Cycle U12 (zero new commits anywhere).
+- No hardware test of FCS Disable workaround found in any public source.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| `component/soc/8735b/fwlib/rtl8735b/source/ram/hal_flash_ns.c` (ameba-rtos-pro2, lines 1559–1580) | **`flash_ns_sector_erase` WIP non-polling confirmed from actual implementation.** The non-secure world driver sends the SE opcode via `spic_ns_tx_cmd()` and returns immediately. `flash_ns_wait_ready` (lines 1463–1477), which polls `rdsr & 0x1` (the Write-In-Progress bit), is a separate function that is **never called** from `flash_ns_sector_erase` or `flash_ns_page_program` (lines 2381–2566). Prior cycles only confirmed this from the stub wrapper `hal_flash.c`; this cycle confirms it from the actual ns-world implementation. The erase command is fire-and-forget at the C layer; any WIP polling must be done by the caller (FlashMemory does not do this). | MEDIUM |
+| `hal_voe_export_ctrl.h` — `voe_isp_export_ld_info_digest_check_from_nor` + new enums | **Digest scope partially clarified.** The `digest_obj` parameter of `voe_isp_export_ld_info_digest_check_from_nor` maps to enum values in `hal_voe_export_ctrl.h`: `VOE_EXPORT_LD_ISP_IMG_MULTI_FCS_HDR = 0x04`, plus FCS sensor-set IDs 0x10–0x19, IQ set IDs 0x20–0x29, sensor set IDs 0x30–0x39 (up to 10 sensor configs). This means the digest check operates on FCS multi-sensor header data and pre-loaded ISP/sensor blobs — NOT on the raw user-data region written by `FlashMemory.write()` (0xFD0000–0xFFFFFF). This partially refines the digest-corruption cold-boot hypothesis: the digest check alone is unlikely to be disrupted by writes to the 0xFD0000 user region, though the FCS partition at 0xF0D000/0x8000 remains potentially vulnerable if a sector erase at 0xFD0000 aliases into an adjacent sector boundary. | MEDIUM |
+| forum.amebaiot.com/t/need-latest-voe-and-sensor-drivers-source-code/4748 | **Newly identified thread** (previously untracked). User compiled custom `voe.bin` + `sensor_f37.bin` from the AmebaPro2 RTOS SDK and placed them in the Arduino SDK `voe_bin/` folder; camera sensor failed to initialize. Confirms that `voe.bin` (the KM co-processor firmware) is the critical binary for sensor initialization and that incorrect or custom `voe.bin` produces sensor init failure. Tangentially relevant: if the KM co-processor reads FCS data from flash during boot, any corruption of its expected data produces the same class of failure. Thread content 403 blocked. | LOW |
+| `ameba-doc-rtos-pro2-sdk.readthedocs-hosted.com/en/latest/application_note/15_ISP.html` | **Newly surfaced documentation URL.** This readthedocs-hosted page is the most complete FCS documentation available and was surfaced by multiple search queries. Returns HTTP 403 (requires developer login or Realtek partner access). The page likely documents FCS flash address layout, `CMD_VIDEO_PRE_INIT_LOAD` with `SAVE_TO_FLASH` option, and the FCS Disable behavior in detail. Accessing this page may resolve open questions about digest coverage and FCS partition boundaries. | LOW |
+| All GitHub repos (Ameba-AIoT, ideashatch, Ai-Thinker-Open), fetched 2026-05-16 | **All repos confirmed frozen.** ameba-rtos-pro2 HEAD = `3f95070` (May 15); ameba-arduino-pro2 main HEAD = `93d63514` (Mar 2); dev HEAD = `13961ccf` (May 5); ideashatch/HUB-8735 last commit Dec 2025. Zero new commits, releases, or issues since Cycle U12. `FCS_I2C_INIT_ERR` and `FCS_RUN_DATA_NG_KM` return zero results in any GitHub code search — confirmed not present in any publicly indexed repository. | LOW |
+| All English/Chinese web sources (forum, CSDN, 知乎, EEWorld, 21IC, Bilibili, Gitee, bbs.aithinker.com) | **No new accessible content anywhere.** All Chinese community sites remain 403. Zero new English-language forum posts or blog articles about the FCS flash-write camera failure. No hardware test of the FCS Disable workaround reported in any publicly accessible source. Error strings `"It don't do the sensor initial process"`, `"FCS KM_status 0x00002081"`, `VOE_OPEN_CMD fail`, `FCS_I2C_INIT_ERR` remain unindexed outside the known 403-blocked forum threads. | LOW |
+
+**Revised cold-boot failure mechanism (digest hypothesis update):**
+
+The digest-scope clarification from `hal_voe_export_ctrl.h` refines the two-mechanism model:
+
+- `voe_isp_export_ld_info_digest_check_from_nor` checks FCS multi-sensor headers (enum IDs 0x04, 0x10–0x19) — these live inside the FCS partition (PT_FCSDATA at 0x8000 and NOR_FLASH_FCS at 0xF0D000), NOT in the FlashMemory user region (0xFD0000+). Direct address-space corruption of the digest source by FlashMemory writes is therefore **unlikely** (no overlap for 4-byte or 280-byte writes).
+- The severe failure (sector erase at 0xFD0000) remains unexplained by digest corruption alone. The most likely mechanism for sector-erase severity is the **WIP bit at cold boot**: `flash_ns_sector_erase` returns immediately without polling WIP. If power is cycled while the erase is still in progress (or very shortly after), the flash chip is still executing the erase command at next boot. The KM co-processor's first flash read (FCS partition) can then return 0xFF bytes (erased/undefined state) or block, causing `FCS_I2C_INIT_ERR`. Writes to 0xFD0000 and erases to adjacent sectors may not complete before the host cuts power.
+- The **severity gradient** (4-byte write → stable; 280-byte write → mild; sector erase → complete fail) maps well to WIP duration: a 4-byte page program completes in ~0.3ms; 280 bytes in ~2ms; a 4KB sector erase takes 30–300ms. The longer the WIP window, the higher the probability that power is cut before the operation completes.
+
+**WIP-duration hypothesis — testable prediction:**
+If the cold-boot failure is caused by the WIP bit being active at power-on, then adding a `hal_flash_wait_ready()` call (or manual `flash_stream_read()` of the just-erased sector) **immediately before the device is powered down** should eliminate the cold-boot failure regardless of FCS mode. This is a simpler workaround than disabling FCS entirely and would preserve fast camera start. Not yet tested in any public source.
+
+**SDK state as of 2026-05-16 (Cycle U13 — unchanged):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix
+- Latest pre-release: V4.1.1-QC-V05 (Mar 6, 2026) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (`3f95070`, `afc85a0`)
+- ameba-arduino-pro2 dev/main: Frozen at May 5, 2026 (`13961cc`)
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-16 (Cycle U13).**
+
+**Two highest-priority open actions:**
+1. **Hardware test of "Camera FCS Mode = Disable"** — mechanism confirmed from source; no public test result exists.
+2. **Hardware test of `hal_flash_wait_ready()` before power-down** — new hypothesis: if WIP bit is the cold-boot root cause, waiting for flash idle before power-off may fix the severe (sector-erase) case while preserving FCS fast-boot.
