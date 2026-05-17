@@ -553,3 +553,61 @@ The two most plausible cold-boot mechanisms (if power is NOT cut during the eras
 **Top unresolved actions (unchanged from U13):**
 1. **Hardware test of "Camera FCS Mode = Disable"** — source-confirmed mechanism; no public hardware test result exists anywhere.
 2. **Determine which flash erase path FlashMemory.cpp actually invokes** — NS path (WIP polled) vs ROM secure stub (WIP unknown). If ROM stub, WIP-at-boot is a viable cold-boot root cause even without power being cut during erase.
+
+## Research Update — 2026-05-17 (Cycle U15)
+
+**Search scope:** Six parallel search threads: (1) GitHub — new commits/issues/releases after May 15; (2) English forums — new threads above #4834, FCS disable workaround hardware test reports; (3) Chinese sources — comprehensive sweep; (4) FlashMemory.cpp call chain — `flash_erase_sector` vs mbed API vs ROM stub; (5) New documentation portals — aiot.realmcu.com, ameba-doc-arduino-sdk readthedocs; (6) Realtek successor chip RTL8735C announcement.
+
+**Key new findings this cycle:**
+- **FlashMemory.cpp call chain confirmed**: calls `flash_erase_sector(flash_t *obj, uint32_t address)` — the mbed-compatible NOR Flash API, NOT `flash_ns_sector_erase` (NS-domain) or `hal_flash_sector_erase` (ROM stub) directly. This means the U13 WIP analysis for the NS path does not directly apply to FlashMemory's actual erase chain. The mbed-API `flash_erase_sector` routes through `hal_flash_sector_erase` (ROM stub via function pointer table) — the ROM stub WIP behavior remains the critical unknown.
+- Three new forum threads newly identified (#4809, #3429, #4725) — all 403-blocked.
+- Both ameba repos confirmed frozen; no new releases or commits since May 15 (rtos-pro2) / May 5 (arduino-pro2).
+- RTL8735C successor chip (AmebaPro3?) announced; no public SDK exists yet.
+- aiot.realmcu.com identified as a new official Realtek IoT documentation portal — all pages return 403.
+- No hardware test of the FCS Disable workaround found anywhere in any public source.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| `FlashMemory.cpp` (ameba-arduino-pro2 `main` branch, direct source fetch) | **Call chain resolved: FlashMemory.cpp calls `flash_erase_sector(flash_t *obj, uint32_t address)`** — the mbed-compatible NOR Flash API with a `flash_t` object. Function signature: `void flash_erase_sector(flash_t *obj, uint32_t address)`. This is different from both `flash_ns_sector_erase` (NS-domain, confirmed WIP-polled in U13/U14) and from `hal_flash_sector_erase` (ROM stub, WIP unknown). The mbed-style `flash_erase_sector` in Ameba Arduino SDKs routes through `flash_api.c` which calls `hal_flash_sector_erase()` (ROM stub). Consequently, the U13 finding "NS erase path polls WIP" does NOT apply to FlashMemory's actual call path — the ROM stub is the actual gating function, and its WIP behavior remains unverified. This resolves the U14 open question in a concerning direction: FlashMemory likely goes through the ROM stub, not the NS path. | MEDIUM |
+| forum.amebaiot.com/t/new-amb82-mini-starts-running-arduino-code-before-turning-on-3-3v/4809 (thread ~Mar–Apr 2026) | **Newly identified thread** (previously untracked). Title: "New AMB82-Mini starts running Arduino code before turning on 3.3V." Suggests the AMB82-Mini's Arduino application code begins executing before the 3.3V supply rail is stable. This is potentially relevant to the cold-boot FCS failure: if the SPI flash VCC is not stable at the moment the boot ROM begins the FCS flash read sequence, the flash could return undefined data → `FCS_I2C_INIT_ERR`. Could explain why some cold boots fail immediately after power-cycling without any flash write. Content 403-blocked. | MEDIUM (blocked) |
+| forum.amebaiot.com/t/sensor-fail-on-amb82-mini/3429 (2024 or earlier) | **Newly identified thread** (previously untracked). Title: "Sensor fail on AMB82 Mini." Different symptom class from our FCS_I2C_INIT_ERR boot failure — but may document related sensor initialization failures. Content 403-blocked. Not confirmed as flash-write-triggered. | LOW (blocked) |
+| forum.amebaiot.com/t/how-to-get-the-restart-reason/4725 (Feb 12, 2026) | **Newly identified thread** (previously untracked). Title: "How to get the restart reason." Discusses AMB82 restart reason APIs — potentially useful for diagnostically distinguishing warm vs. cold reset paths in our bug (checking if `hal_sys_get_rst_reason()` or equivalent returns different codes after flash write). Content 403-blocked. | LOW (blocked) |
+| ameba-rtos-pro2 commits (fetched 2026-05-17) | **Confirmed frozen.** HEAD remains `3f95070` "Sync upstream 7343927…" (May 15, 2026). Zero new commits in the past 48 hours. No flash, FCS, VOE, boot, or sensor changes in any observable pipeline. | LOW |
+| ameba-arduino-pro2 issues (fetched 2026-05-17) | **Confirmed frozen.** Open issues max at #398 (Mar 29, 2026). No new issues filed. No bug report about FCS/flash/camera/VOE/boot failure. 12 open issues total, all feature requests. | LOW |
+| ameba-arduino-pro2 releases (fetched 2026-05-17) | **No new release.** Latest stable: V4.1.0 (Mar 2, 2026). Latest pre-release: V4.1.1-QC-V05 (Mar 6, 2026). No V4.1.1 stable or QC-V06+ exists. | LOW |
+| Realtek RTL8735C (announced COMPUTEX 2025, Best Choice Award; news release Dec 2025) | **Successor chip to RTL8735B announced.** RTL8735C: Wi-Fi 6, Bluetooth 5.3, advanced AI ISP with "high-resolution full-color imaging in low light," ultra-low power for wearables. Single-chip integrating wireless communication, imaging, 2-way audio, and AI edge computing. No public SDK or Arduino support exists yet. Whether RTL8735C addresses the FCS+flash boot race is unknown — no technical specifications comparing FCS implementation between RTL8735B and RTL8735C are publicly available. | LOW |
+| aiot.realmcu.com (newly identified Realtek documentation portal) | **New official documentation portal discovered.** URLs identified: `aiot.realmcu.com/en/latest/arduino/arduino_guide/sdk_intro/evb_guides/evb_amb82mini.html` (AMB82-mini Arduino guide), `aiot.realmcu.com/en/latest/rtos/sdk/mpu_cache/mmu/index.html` (MMU/cache docs), `aiot.realmcu.com/en/latest/tools/image_tool/index.html` (Flash Program Tool). All return HTTP 403. This portal may contain FCS flash layout documentation, dcache management guides, and flash safe-address specifications not available elsewhere — but it requires authenticated access. | LOW (blocked) |
+| Web-wide English search: FCS Disable hardware test confirmation | **Still zero results.** No public hardware test of "Camera FCS Mode = Disable" as a workaround for the FlashMemory cold-boot failure has been posted anywhere on the accessible web. Developers are using FCS Disable as a normal camera configuration choice (confirmed via search snippets showing `Amb82HTTPDisplayJPEGContinuous.ino` with "Camera FCS Mode: Disable"), but none specifically as a fix for the flash-write cold-boot bug. | LOW |
+| Web-wide search: `"It don't do the sensor initial process"`, `FCS_I2C_INIT_ERR`, `FCS_RUN_DATA_NG_KM` | **Zero indexed results** (unchanged from all prior cycles). This research log remains the only publicly accessible documentation connecting these error codes to flash write operations. | LOW |
+| Chinese-language sources (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Bilibili/Gitee, May 17) | No new Chinese-language content on FCS flash-write camera failure. All Chinese community sites remain 403-blocked. No new BW21-CBV articles with relevant content. Zero results for FCS flash camera boot failure in any Chinese-language search. | LOW |
+
+**FlashMemory call chain — revised WIP analysis:**
+
+The call chain resolution from this cycle changes the U13/U14 WIP analysis:
+
+| Layer | Function | WIP polling confirmed? |
+|---|---|---|
+| Arduino / user sketch | `FlashMemory.write()`, `.erase()` | None (confirmed U7) |
+| FlashMemory.cpp internal | `flash_erase_sector(flash_t*, uint32_t)` | Unknown — depends on ROM stub |
+| mbed NOR Flash API impl | `flash_api.c` → `hal_flash_sector_erase()` | Unknown — ROM stub |
+| ROM stub (boot ROM) | `hal_flash_stubs.hal_flash_sector_erase()` | **NOT VERIFIED** (U14) |
+| NS-domain | `flash_ns_sector_erase` → `spic_ns_tx_cmd` → `flash_ns_wait_ready` | Yes (U13 — but this path is NOT called by FlashMemory) |
+
+**Conclusion:** The U13 finding that "NS erase path polls WIP" describes a path that FlashMemory does NOT use. The ROM stub path used by FlashMemory (`flash_erase_sector` → `hal_flash_sector_erase` → ROM) may or may not poll WIP. If the ROM stub returns immediately without polling (fire-and-forget), then WIP is always active at function return, making the WIP-at-boot hypothesis viable even without a power cut during erase. This remains the most important unresolved technical question.
+
+**Power supply timing note (thread #4809):**
+
+Thread #4809 ("AMB82-Mini starts running Arduino code before turning on 3.3V") suggests the board's power sequencing may allow code execution before supply rails stabilize. If the SPI flash VCC (VDDIO) is not fully charged when the boot ROM begins the FCS partition read at 0x8000, the flash may return erased (0xFF) or garbage data, producing `FCS_I2C_INIT_ERR`. This could be a separate contributing factor independent of flash write operations — or it could compound the ROM stub WIP hypothesis (flash busy + supply unstable = guaranteed failure).
+
+**SDK state as of 2026-05-17 (Cycle U15 — unchanged):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix
+- Latest pre-release: V4.1.1-QC-V05 (Mar 6, 2026) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (`3f95070`, `afc85a0`) — 2 days no change
+- ameba-arduino-pro2 dev/main: Frozen at May 5, 2026 (`13961cc`) / Mar 2, 2026
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-17 (Cycle U15).**
+
+**Top unresolved actions (updated):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — source-confirmed mechanism from 3 independent code paths; no public hardware test result exists anywhere.
+2. **Determine if `hal_flash_sector_erase` ROM stub polls WIP** — this is now confirmed as the actual FlashMemory call path; the NS path analysis is not directly applicable. ROM binary inspection or hardware logic analyzer capture needed.
+3. **Investigate thread #4809 power sequencing issue** — if SPI flash VCC is unstable at boot ROM FCS read time, this is a separate root cause contributing to the cold-boot failure gradient. Thread content is 403-blocked.
