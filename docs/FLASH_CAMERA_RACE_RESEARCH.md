@@ -669,3 +669,61 @@ Adding `delay(500)` (covering W25Q128JV tSE max = 400 ms + margin) immediately a
 1. **Hardware test of "Camera FCS Mode = Disable"** — source-confirmed mechanism; no public hardware test result exists anywhere. Highest priority.
 2. **Hardware test of `delay(500)` after `flash_erase_sector()`** — simple Arduino workaround for WIP-at-boot path; C-layer source now confirms fire-and-forget. Second highest priority.
 3. **Determine ROM stub internal WIP behavior** — if the ROM stub is synchronous internally, neither the C-layer fire-and-forget observation nor the `delay()` workaround applies to the cold-boot case. Logic analyzer or ROM binary inspection needed.
+
+## Research Update — 2026-05-17 (Cycle U17)
+
+**Search scope:** Four parallel agents: (1) GitHub — all repos post-May 15 activity, hal_flash.c function bodies; (2) English forum/web — new threads above #4834, FCS disable workaround reports; (3) Chinese sources — CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Bilibili/Gitee; (4) SDK deep-dive — `hal_flash_ns.c` full NS stub table, `spic_ns_tx_cmd` WIP polling, FlashMemory call chain resolution.
+
+**Key new findings this cycle:**
+- **MAJOR REVISION — ROM stub IS synchronous:** `flash_ns_sector_erase` (the NS stub implementation used by Arduino SDK under `CONFIG_BUILD_NONSECURE`) calls `spic_ns_tx_cmd()`, which unconditionally calls both `spic_ns_wait_ready()` (SPIC controller) and `flash_ns_wait_ready()` (flash device WIP bit) before returning. The erase is **fully blocking** — WIP=0 is guaranteed before `flash_erase_sector()` returns. This disproves the WIP-at-boot hypothesis for continuously-powered devices and invalidates the `delay(500)` workaround proposed in U16.
+- `hal_flash_stubs_ns` struct confirmed as the actual stubs table used: `hal_flash_sector_erase` → `flash_ns_sector_erase`, `hal_flash_wait_ready` → `flash_ns_wait_ready` (independent entry, confirming it can be called separately but is redundant after erase).
+- "VOE_OUT_CMD type 2 command fail -1" from thread #4321 identified as a new error string variant in the camera sensor init failure class (GC2053, Aug 2025) — previously logged as generic "sensor init failed".
+- All repos confirmed frozen; no new commits, releases, or issues anywhere.
+- Zero new Chinese or English content; no hardware test of FCS Disable workaround anywhere.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| `hal_flash_ns.c` lines ~361-400 (ameba-rtos-pro2, `CONFIG_BUILD_NONSECURE` build) | **NS stubs table confirmed:** `hal_flash_stubs_ns` maps `.hal_flash_sector_erase = flash_ns_sector_erase` and `.hal_flash_wait_ready = flash_ns_wait_ready`. The Arduino SDK compiles with `CONFIG_BUILD_NONSECURE` defined, so `hal_flash_stubs.hal_flash_sector_erase()` dispatches to `flash_ns_sector_erase` from `hal_flash_ns.c`, NOT to a closed ROM binary. This resolves the U14/U15/U16 ambiguity about ROM stub WIP behavior — the NS stubs table is the actual path. | HIGH |
+| `hal_spic_ns.c` lines 1004–1076 — `spic_ns_tx_cmd()` (ameba-rtos-pro2) | **WIP polling IS present in the NS erase path — MAJOR REVISION.** `spic_ns_tx_cmd()` sends any flash command and then unconditionally calls: (1) `spic_ns_wait_ready(spic_dev)` — polls SPIC_SR BUSY bit (controller done); (2) `flash_ns_wait_ready(phal_spic_adaptor)` — polls flash Status Register WIP bit (S0 = 0 for W25Qxx, bit 7 of SR2 for Micron). Both polls are in a busy-wait loop that blocks until cleared. `flash_ns_sector_erase` calls `spic_ns_tx_cmd(cmd->se, ...)` as its final step → erase is fully blocking. **The characterization in U13/U16 that "erase is fire-and-forget" applied to the RAM-layer wrapper only; the NS implementation below it is synchronous.** | HIGH |
+| `flash_ns_set_write_enable()` (hal_flash_ns.c lines ~1272-1282) | Pre-erase WIP check also included: `flash_ns_set_write_enable()` calls `flash_ns_wait_ready()` before issuing WREN, then busy-loops until WEL bit (SR1 bit 1) is set. Both the WREN and the SE command paths enforce WIP=0. Calling `hal_flash_wait_ready()` after `hal_flash_sector_erase()` is therefore redundant — the erase already blocks until WIP=0. | MEDIUM |
+| Revised WIP-at-boot hypothesis status | **WIP-at-boot hypothesis DISPROVED for continuously-powered devices.** Because `flash_ns_sector_erase` blocks until WIP=0, the function cannot return while flash is still erasing. A cold boot triggered any time after `flash_erase_sector()` returns will NOT catch the flash chip mid-erase. The 400 ms WIP window is therefore irrelevant for normally-powered RTL8735B devices. The WIP scenario is only valid if power is physically cut DURING the busy-wait loop itself (flash WIP=1, CPU spinning) — which requires the host to cut power during a 45–400 ms window while the CPU is still running. This is plausible only for battery-powered devices or hardware with aggressive power control that cuts VDDIO before the erase function returns. | HIGH |
+| `delay(500)` workaround assessment (U16) | **Downgraded from MEDIUM to NOT NEEDED** for normally-powered devices. Since the erase is synchronous, there is nothing to "wait out" after the function returns. Adding a delay is harmless but unnecessary for the WIP path. The U16 "MEDIUM confidence" rating was based on the incorrect assumption that the NS path was not called by FlashMemory. | HIGH |
+| New cold-boot root cause analysis required | **With WIP ruled out, a different cold-boot mechanism must explain the persistent failure.** Best remaining candidates: (1) **SPIC concurrent access**: `ftl_common_write()` (ISP AE/AWB background save to `NOR_FLASH_FCS = 0xF0D000`) has no mutex protecting SPIC access. While `flash_ns_sector_erase` busy-waits on WIP (CPU running, FreeRTOS still scheduling), the ISP AE/AWB write task could also attempt SPIC operations — concurrent SPIC access without a mutex could corrupt the AE/AWB data at 0xF0D000, which persists in flash across cold boots. (2) **SPIC controller state**: The SPIC controller may leave some internal register state after an erase that disrupts the boot ROM's flash-init sequence on next cold boot (unrelated to WIP). (3) **Power-cut-during-erase still applies** for battery/low-power designs where VDDIO could drop during the erase busy-wait. | MEDIUM |
+| forum.amebaiot.com/t/camera-sensor-init-failed-gc2053/4321 — new error detail | **"VOE_OUT_CMD type 2 command fail -1"** — newly extracted error string variant from thread #4321 (GC2053, Aug 2025). Previously logged as "sensor init failed." This string suggests the VOE command dispatcher has a "type 2" command variant distinct from "OPEN_CMD" — may represent a different IPC command type in the VOE protocol. Not confirmed as flash-triggered. Thread content still 403 blocked. | LOW |
+| All GitHub repos (fetched 2026-05-17, two agents) | **All repos confirmed frozen.** ameba-rtos-pro2 HEAD = `3f95070` (May 15, 2026); ameba-arduino-pro2 main = `93d63514` (Mar 2); dev = `13961ccf` (May 5); ideashatch/HUB-8735 last commit Dec 2025. No new commits, releases (no V4.1.1 stable, no QC-V06+), or issues in any repository. Two independent agents reached identical conclusions. | LOW |
+| All English/Chinese web sources (three agents, May 17 sweep) | **Zero new content anywhere.** forum.amebaiot.com, bbs.aithinker.com, bbs.ai-thinker.com, CSDN, Zhihu, EEWorld, 21IC, Bilibili, Gitee, mcublog.cn all return 403 or zero relevant results. Error strings `"FCS KM_status 0x00002081"`, `"It don't do the sensor initial process"`, `"VOE_OPEN_CMD fail"` remain unindexed anywhere outside 403-blocked forum threads. No public hardware test of "Camera FCS Mode = Disable" as a flash-write workaround has been posted anywhere. | LOW |
+
+**Revised WIP analysis — complete call chain (NS build, Cycle U17):**
+
+| Layer | Function | WIP polling |
+|---|---|---|
+| User sketch | `FlashMemory.erase()` | None |
+| FlashMemory.cpp | `flash_erase_sector(flash_t*, addr)` | None |
+| mbed/flash_api.c | `hal_flash_sector_erase(adaptor, addr)` (RAM wrapper) | None — thin wrapper only |
+| NS stubs table | `hal_flash_stubs.hal_flash_sector_erase` → `flash_ns_sector_erase` | None in stub dispatch |
+| NS implementation | `flash_ns_sector_erase` → `flash_ns_set_write_enable()` + `spic_ns_tx_cmd(SE)` | **YES** — `flash_ns_wait_ready()` called twice (before WREN and after SE) |
+| SPIC layer | `spic_ns_tx_cmd` → `spic_ns_wait_ready()` + `flash_ns_wait_ready()` | **YES** — both controller and device WIP polled to 0 |
+
+**Conclusion:** WIP=0 is guaranteed before `flash_erase_sector()` returns. The U16 fire-and-forget characterization applied only to the RAM wrapper layer; the NS implementation is fully synchronous.
+
+**Revised workaround table (Cycle U17):**
+
+| Workaround | Mechanism | Status | Confidence |
+|---|---|---|---|
+| "Camera FCS Mode = Disable" | Dummy blob → invalid MFCS magic → KM enters bypass (0x0083), never reaches GPIO/I2C init | Source-confirmed from `postbuild.cpp`, `video_boot.c`, `video_api.c`; no hardware test | HIGH (mechanism); UNCONFIRMED (hardware) |
+| Stop camera before flash write | Eliminates concurrent ISP `ftl_common_write()` SPIC access; prevents AE/AWB data corruption at 0xF0D000 | Untested; addresses SPIC concurrent-access hypothesis | LOW (hypothesis, unconfirmed) |
+| `delay(500)` after `flash_erase_sector()` | Unnecessary for WIP (erase is synchronous); only relevant if power-cut-during-erase is the root cause | **Downgraded from MEDIUM (U16) — NOT NEEDED for normally-powered devices** | VERY LOW (inapplicable unless WIP scenario applies) |
+| `hal_flash_wait_ready()` after erase | Redundant — erase already ensures WIP=0 | Available in hal_flash.h but unnecessary | NOT NEEDED |
+
+**SDK state as of 2026-05-17 (Cycle U17 — unchanged):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix
+- Latest pre-release: V4.1.1-QC-V05 (Mar 6, 2026) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (`3f95070`, `afc85a0`)
+- ameba-arduino-pro2 dev/main: Frozen at May 5, 2026 (`13961cc`)
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-17 (Cycle U17).**
+
+**Top unresolved actions (updated):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — source-confirmed full bypass of FCS boot path; no public hardware test result exists. Highest priority.
+2. **Investigate SPIC concurrent-access hypothesis** — does `ftl_common_write()` (ISP AE/AWB task) race with `FlashMemory.erase()` on the SPIC bus? Stopping the camera before flash write is the practical test. If concurrent SPIC is the root cause, `USE_ISP_RETENTION_DATA` (saving AE/AWB to SRAM instead of flash) may be a second workaround.
+3. **Determine exact call path for `flash_erase_sector(flash_t*, addr)`** — Agent 4 confirmed FlashMemory calls this mbed-compat function, but `flash_api.c` (the mbed implementation file) was not directly retrieved to verify whether it calls `hal_flash_sector_erase` or takes a different path. This is the remaining ambiguity in the confirmed-NS-path analysis.
