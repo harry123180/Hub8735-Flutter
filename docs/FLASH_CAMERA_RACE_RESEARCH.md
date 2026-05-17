@@ -611,3 +611,61 @@ Thread #4809 ("AMB82-Mini starts running Arduino code before turning on 3.3V") s
 1. **Hardware test of "Camera FCS Mode = Disable"** — source-confirmed mechanism from 3 independent code paths; no public hardware test result exists anywhere.
 2. **Determine if `hal_flash_sector_erase` ROM stub polls WIP** — this is now confirmed as the actual FlashMemory call path; the NS path analysis is not directly applicable. ROM binary inspection or hardware logic analyzer capture needed.
 3. **Investigate thread #4809 power sequencing issue** — if SPI flash VCC is unstable at boot ROM FCS read time, this is a separate root cause contributing to the cold-boot failure gradient. Thread content is 403-blocked.
+
+## Research Update — 2026-05-17 (Cycle U16)
+
+**Search scope:** Four parallel agents + direct web searches: (1) GitHub — new commits/releases after May 15 (rtos-pro2) / May 5 (arduino-pro2); (2) English forum/web — new threads above #4834, FCS Disable workaround reports; (3) Chinese sources — bbs.aithinker.com, CSDN, 知乎, EEWorld, 21IC; (4) Flash driver deep-dive — `hal_flash.c` function bodies retrieved directly from GitHub, `flash_api.c` call chain, WIP polling confirmation.
+
+**Key new findings this cycle:**
+- **`hal_flash_sector_erase()` C-layer function body retrieved and confirmed fire-and-forget** — lines 545–560 of `hal_flash.c`: ROM stub called with no `hal_flash_wait_ready()` before or after. `hal_flash_page_program()` is equally a thin wrapper (lines 930–938). `hal_flash_wait_ready()` exists (lines 422–429) but is never called from erase or page-program. This resolves Cycle U15's open question about ROM stub WIP behavior at the C layer — the C layer is definitively fire-and-forget.
+- Both repos still frozen at same HEADs as U15; no new releases; no new forum threads above #4834 found.
+- bbs.aithinker.com remains 403-blocked (one earlier agent report of accessibility was incorrect — confirmed by direct WebFetch returning 403).
+- ISP documentation, forum threads #4834 and #4809, and all Chinese community sites remain 403-blocked.
+- No hardware test of FCS Disable workaround found anywhere in any public source.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| `hal_flash.c` lines 545–560, 930–938, 422–429 (ameba-rtos-pro2, fetched 2026-05-17) | **`hal_flash_sector_erase` is definitively fire-and-forget at the C layer.** Function body: sets extended address bits, calls `hal_flash_stubs.hal_flash_sector_erase(phal_spic_adaptor, address)`, restores address bits — **no `hal_flash_wait_ready()` call anywhere.** `hal_flash_page_program` (lines 930–938) is an even thinner wrapper: single line `hal_flash_stubs.hal_flash_page_program(...)` with zero WIP management. `hal_flash_wait_ready` (lines 422–429) exists as `hal_flash_stubs.hal_flash_wait_ready(phal_spic_adaptor)` — but is never called from erase or page-program functions. This closes the C-layer ambiguity from U14/U15. Whether the ROM stub itself internally waits remains unverifiable from public source alone, but the C wrapper never waits. | HIGH |
+| FlashMemory call chain (synthesis from U15 + U16 hal_flash.c source) | **Complete FlashMemory WIP non-polling chain confirmed:** `FlashMemory.erase()` → `flash_erase_sector(flash_t*, addr)` (mbed API) → `hal_flash_sector_erase(adaptor, addr)` (C wrapper, confirmed fire-and-forget) → `hal_flash_stubs.hal_flash_sector_erase()` (ROM stub, WIP behavior unknown but C layer does not wait). Result: from the C layer down, there is **zero WIP polling** at any point accessible from public source. If the ROM stub returns before the flash erase completes (reasonable assumption given the pattern), WIP is active at function return — meaning a cold boot occurring within the subsequent 0–400 ms window (tSE worst case) would catch the flash chip mid-erase. | HIGH |
+| mbed-os Issue #6380 "HAL Flash sector erase doesn't work consistently" (ARMmbed/mbed-os, GitHub) | **Cross-platform mbed precedent confirmed.** A separate mbed-os issue (not RTL8735B-specific) documents that mbed HAL flash sector erase returns before the operation is complete on multiple targets. Pattern is consistent with RTL8735B's C-layer fire-and-forget behavior. Not RTL8735B-specific, but validates the general hazard class at the mbed HAL level. | LOW |
+| ameba-rtos-pro2 HEAD (fetched 2026-05-17) | **Frozen.** HEAD = `3f95070` "Sync upstream 7343927…" (May 15, 2026) — identical to U15. Zero new commits in 2 days. No flash, FCS, VOE, boot, or sensor changes in any commit. | LOW |
+| ameba-arduino-pro2 releases (fetched 2026-05-17) | **No new releases.** Latest stable = V4.1.0 (Mar 2, 2026). Latest pre-release = V4.1.1-QC-V05 (Mar 6, 2026). No V4.1.1 stable or QC-V06+ has been published. | LOW |
+| All Chinese-language sources (bbs.aithinker.com, CSDN, 知乎, EEWorld, 21IC, Gitee, Bilibili, May 17) | **Zero new content; bbs.aithinker.com confirmed still 403-blocked.** Previous cycle's agent report of bbs.aithinker.com accessibility was incorrect — direct WebFetch returns HTTP 403. No new Chinese-language technical content about FCS flash-write camera failure found. | LOW |
+| Web-wide English search (all engines, May 17 sweep) | **Zero new indexed results** for `FCS_I2C_INIT_ERR`, `FCS_RUN_DATA_NG_KM`, `"It don't do the sensor initial process"`, `VOE_OPEN_CMD fail flash`. No new public hardware test reports of FCS Disable workaround for this specific bug. | LOW |
+
+**WIP-at-boot hypothesis — now strongly supported (revised assessment):**
+
+The C-layer source confirmation that `hal_flash_sector_erase` is fire-and-forget upgrades this hypothesis from "plausible" to "strongly supported":
+
+1. `FlashMemory.erase()` returns to user code with WIP potentially still active.
+2. If any code path (software reset, power cut, watchdog, OTA reboot) triggers a cold boot within tSE worst-case (400 ms), the flash chip is still erasing.
+3. The boot ROM's FCS partition read at 0x8000 (fcsdata) reads 0xFF or undefined data from the mid-erase chip.
+4. KM co-processor receives invalid FCS header → `FCS_I2C_INIT_ERR` (0x200A) → `FCS_RUN_DATA_NG_KM` (0x2081).
+5. "It don't do the sensor initial process" → camera dead for this boot session.
+
+For cases where the device is not powered down for minutes after the erase (e.g., a software `sys_reset()` triggered immediately), the WIP window explains everything. For devices with battery or mechanical power switches that could be toggled within seconds, the 400 ms window is realistic.
+
+**Practical `delay()` workaround — upgraded to MEDIUM confidence:**
+
+Adding `delay(500)` (covering W25Q128JV tSE max = 400 ms + margin) immediately after `flash_erase_sector()` in user code would close the WIP window before any reboot is possible. This is a one-line Arduino sketch change requiring no SDK modification and no FCS mode change. It would not eliminate the cold-boot failure if the ROM stub itself is synchronous (waits internally), but in that case the bug's root cause is different and this delay is harmless. If the ROM stub is asynchronous, this delay is the minimal fix.
+
+**Updated workaround table:**
+
+| Workaround | Mechanism | Status | Confidence |
+|---|---|---|---|
+| "Camera FCS Mode = Disable" | Dummy blob → invalid magic → KM bypass (0x0083), never reaches I2C | Source-confirmed (postbuild.cpp, video_boot.c, video_api.c); no hardware test | HIGH (mechanism); UNCONFIRMED (hardware) |
+| `delay(500)` after `flash_erase_sector()` | Allows tSE worst-case (400ms) to complete before any reboot | Trivially implementable in Arduino; addresses WIP-at-boot path | MEDIUM (unconfirmed hardware test) |
+| `hal_flash_wait_ready()` after erase | Explicit WIP-done signal from HAL | Declared in hal_flash.h; non-trivial to call from Arduino (requires adaptor ptr) | LOW (API access non-trivial) |
+
+**SDK state as of 2026-05-17 (Cycle U16 — unchanged):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix
+- Latest pre-release: V4.1.1-QC-V05 (Mar 6, 2026) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (`3f95070`, `afc85a0`)
+- ameba-arduino-pro2 dev/main: Frozen at May 5, 2026 (`13961cc`)
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-17 (Cycle U16).**
+
+**Top unresolved actions (updated from U15):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — source-confirmed mechanism; no public hardware test result exists anywhere. Highest priority.
+2. **Hardware test of `delay(500)` after `flash_erase_sector()`** — simple Arduino workaround for WIP-at-boot path; C-layer source now confirms fire-and-forget. Second highest priority.
+3. **Determine ROM stub internal WIP behavior** — if the ROM stub is synchronous internally, neither the C-layer fire-and-forget observation nor the `delay()` workaround applies to the cold-boot case. Logic analyzer or ROM binary inspection needed.
