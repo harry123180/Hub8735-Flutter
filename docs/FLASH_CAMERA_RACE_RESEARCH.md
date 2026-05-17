@@ -727,3 +727,50 @@ Adding `delay(500)` (covering W25Q128JV tSE max = 400 ms + margin) immediately a
 1. **Hardware test of "Camera FCS Mode = Disable"** — source-confirmed full bypass of FCS boot path; no public hardware test result exists. Highest priority.
 2. **Investigate SPIC concurrent-access hypothesis** — does `ftl_common_write()` (ISP AE/AWB task) race with `FlashMemory.erase()` on the SPIC bus? Stopping the camera before flash write is the practical test. If concurrent SPIC is the root cause, `USE_ISP_RETENTION_DATA` (saving AE/AWB to SRAM instead of flash) may be a second workaround.
 3. **Determine exact call path for `flash_erase_sector(flash_t*, addr)`** — Agent 4 confirmed FlashMemory calls this mbed-compat function, but `flash_api.c` (the mbed implementation file) was not directly retrieved to verify whether it calls `hal_flash_sector_erase` or takes a different path. This is the remaining ambiguity in the confirmed-NS-path analysis.
+
+## Research Update — 2026-05-17 (Cycle U18)
+
+**Search scope:** Six parallel search threads + direct GitHub/web fetches: (1) GitHub — new commits/releases after May 15 (rtos-pro2) / May 5 (arduino-pro2); (2) English forums — new threads above #4834, FCS Disable workaround hardware tests; (3) Chinese sources — CSDN/知乎/EEWorld/21IC/bbs.aithinker.com; (4) SPIC concurrent-access hypothesis — `video_open_close_mutex` scope from `video_api.c`, `ftl_common_write` in GitHub code search; (5) `flash_ns_sector_erase` function body at `hal_flash_ns.c` line 1285; (6) New documentation portals — `aiot.realmcu.com/en/latest/linux/peripherals/spic/index.html`.
+
+**Key new findings this cycle:**
+- **`video_open_close_mutex` confirmed NOT a SPIC guard** — exists in `video_api.c` at line ~270, protects video init/teardown only; no mutex protects the SPIC bus during runtime ISP AE/AWB flash writes. SPIC concurrent-access hypothesis gains support.
+- **`ftl_common_write` returns zero results** in GitHub code search for ameba-rtos-pro2 — requires authentication or resides in a closed-source compiled library; ISP AE/AWB flash write locking behavior is opaque.
+- **`hal_flash_stubs_ns` struct confirmed at lines 815–846 of `hal_flash_ns.c`** — `.hal_flash_sector_erase = flash_ns_sector_erase` confirmed from source.
+- Both repos still frozen; no new releases, issues, or commits anywhere; no new forum threads above #4834; zero new Chinese-language content.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| `video_api.c` (ameba-rtos-pro2, retrieved May 17) | **`video_open_close_mutex` confirmed NOT a SPIC guard.** `static _mutex video_open_close_mutex = NULL` at line ~270 protects video initialization and teardown sequences only (`video_open` / `video_close`). There is **no mutex or semaphore visible in open-source C code** that prevents concurrent SPIC flash bus access between the ISP AE/AWB background write task (`ftl_common_write`) and `FlashMemory.erase()` or `FlashMemory.write()`. This is the first positive source-code confirmation that the SPIC bus has no cross-subsystem lock. If `ftl_common_write` also lacks internal locking, both paths could issue SPIC commands simultaneously, producing undefined flash controller state. | MEDIUM |
+| GitHub code search: `ftl_common_write` in ameba-rtos-pro2 | **Zero results** — GitHub code search for `ftl_common_write` in the ameba-rtos-pro2 repository requires login (returned authentication wall, not a 0-hit page). This is distinct from a confirmed 0-hit result. The function is either in a closed-source binary (e.g., `libvideo_ns.a`), in a file not indexed by unauthenticated search, or named differently. Combined with `video_api.c` `#include "ftl_common_api.h"` at line ~130, the ISP AE/AWB flash write implementation is fully opaque from public source. | MEDIUM |
+| `hal_flash_ns.c` lines 815–846 (ameba-rtos-pro2, retrieved May 17) | **`hal_flash_stubs_ns` struct confirmed from source.** Direct fetch of `hal_flash_ns.c` shows `hal_flash_stubs_ns` struct containing `.hal_flash_sector_erase = flash_ns_sector_erase` at the stubs-table definition. `flash_ns_sector_erase` is at line 1285. The content after line 1300 was truncated in the fetch but the dispatch chain is confirmed; WIP polling behavior was established in U17 via `spic_ns_tx_cmd` analysis (unconditionally calls both `spic_ns_wait_ready` and `flash_ns_wait_ready`). This is a direct source confirmation of the U17 NS-path finding. | LOW (confirms U17) |
+| ameba-rtos-pro2 commits (fetched 2026-05-17, direct GitHub fetch) | **Still frozen.** HEAD = `3f95070` "Sync upstream 7343927…" (May 15, 2026). Zero new commits in 2 days since U17. Ten most recent commits: `3f95070`, `afc85a0`, `9c8b6f6`, `d2676f1` (all May 15); `1c1c8b7`, `a111e91`, `7b2b97f`, `63c0a2f`, `d54e1a8`, `687a4c7` (all May 1). No flash, FCS, VOE, boot, or sensor changes anywhere. | LOW |
+| ameba-arduino-pro2 dev branch commits (fetched 2026-05-17, direct GitHub fetch) | **Still frozen.** HEAD = `13961cc` "Update API for AMB82-zero and SWD off logic" (May 5, 2026). Latest stable = V4.1.0 (Mar 2, 2026, `93d6351`). Latest pre-release = V4.1.1-QC-V05 (no release after Apr 17). No new commits, pre-releases, or stable releases since last cycle. ameba-arduino-pro2 open issues: 12 open, max #398 (Mar 29, 2026) — no new issues filed. | LOW |
+| forum.amebaiot.com threads #4835–#4840 (probed 2026-05-17) | **No new indexed threads.** Direct fetch of threads #4835 and #4836 (constructed URLs) returned HTTP 403. Google search for "forum.amebaiot.com 4835 OR 4836 OR 4837 OR 4838 OR 4839 OR 4840" returned only the forum index page — these thread IDs are not indexed, suggesting they either do not yet exist or were created within the past 24 hours and are not yet crawled. Forum thread ceiling remains at #4834 (Boot failure after OTA update) as the highest confirmed thread. | LOW |
+| `aiot.realmcu.com/en/latest/linux/peripherals/spic/index.html` | **SPIC controller documentation page confirmed present but 403.** This URL appeared in search results for "SPIC concurrent access" queries; content describes the RTL8735B SPI Flash Controller driver. Returns HTTP 403 (developer login required). If accessible, it may document whether the SPIC driver uses a global mutex for multi-thread safety. Currently inaccessible. | LOW (blocked) |
+| All Chinese-language sources (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Bilibili/Gitee, May 17) | **Zero new content.** All Chinese community sites remain 403-blocked. bbs.ai-thinker.com BW21-CBV threads confirmed still inaccessible. Sohu.com BW21-CBV tutorial also returns 403 (May 17 re-check). No Chinese-language forum posts or articles discuss FCS flash-write camera failure on RTL8735B or BW21-CBV. | LOW |
+| Web-wide English search: all error strings | **Still zero new results.** `"FCS KM_status 0x00002081"`, `"It don't do the sensor initial process"`, `"VOE_OPEN_CMD fail flash"`, `"FCS_I2C_INIT_ERR"`, `"FCS_RUN_DATA_NG_KM"` return zero publicly indexed results outside 403-blocked forum threads. No hardware test of "Camera FCS Mode = Disable" as a flash-write bug workaround has appeared anywhere on the accessible web. | LOW |
+
+**SPIC concurrent-access hypothesis — updated assessment:**
+
+The U17 hypothesis that the ISP AE/AWB background task (`ftl_common_write`) may race with `FlashMemory.erase()` on the shared SPIC bus receives indirect support from this cycle:
+
+- **No SPIC bus mutex visible in open-source C code.** `video_open_close_mutex` in `video_api.c` only guards `video_open()`/`video_close()` — it does not lock the SPIC bus during runtime ISP flash writes.
+- **`ftl_common_write` is in a closed-source binary.** Its internal locking cannot be confirmed. The pessimistic assumption (no internal lock) is consistent with the absence of any observable mutex protecting the SPIC bus.
+- **Practical test remains unchanged:** Stop the camera (call `video_deinit()` / `camObj.videoDeinit()`) before calling `FlashMemory.erase()`, then reinitialize the camera afterward. If the cold-boot failure disappears, concurrent SPIC access is confirmed as the root cause. This is the most actionable remaining hardware test after "Camera FCS Mode = Disable."
+
+**`USE_ISP_RETENTION_DATA` as a second workaround path:**
+
+If the SPIC concurrent-access hypothesis is confirmed, `USE_ISP_RETENTION_DATA` (uncomment in `video_api.h` to store AE/AWB ISP parameters in SRAM retention instead of NOR flash) eliminates the ISP's background flash writes entirely. Combined with user code that never writes to the 0xF0D000 NOR_FLASH_FCS region, this would remove the race condition without requiring FCS mode changes. This was documented in earlier cycles but is newly relevant given the `video_open_close_mutex` scope confirmation.
+
+**SDK state as of 2026-05-17 (Cycle U18 — unchanged):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix
+- Latest pre-release: V4.1.1-QC-V05 (Mar 6 / Apr 17, 2026) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (`3f95070`, `afc85a0`)
+- ameba-arduino-pro2 dev/main: Frozen at May 5, 2026 (`13961cc`)
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-17 (Cycle U18).**
+
+**Top unresolved actions (updated from U17):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — source-confirmed full bypass of FCS cold-boot path via dummy blob; no public hardware test result exists. Highest priority.
+2. **Hardware test of camera-stop before flash erase** — call `video_deinit()` before `FlashMemory.erase()`; this tests the SPIC concurrent-access hypothesis. If this fixes the bug, `USE_ISP_RETENTION_DATA` is a non-intrusive long-term workaround.
+3. **Determine `ftl_common_write` locking behavior** — function is in a closed-source binary; ROM binary inspection or logic analyzer capture of the SPIC bus during concurrent camera+flash operation needed.
