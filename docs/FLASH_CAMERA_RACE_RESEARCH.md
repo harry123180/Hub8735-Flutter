@@ -834,3 +834,58 @@ The bug scenario: ISP AE/AWB task issues WREN via `flash_ns_set_write_enable()` 
 1. **Hardware test of "Camera FCS Mode = Disable"** — source-confirmed full FCS bypass; no hardware test result exists anywhere. Highest priority.
 2. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP SPIC writes; source-confirmed path; requires modifying `video_api.h` in the SDK (not accessible from Arduino sketch directly).
 3. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — wrap `FlashMemory.erase()` / `FlashMemory.write()` with `device_mutex_lock(1)` / `device_mutex_unlock(1)` (if `device_lock.h` is accessible from Arduino). If this eliminates the cold-boot failure, SPIC concurrent-access is confirmed as the root cause.
+
+## Research Update — 2026-05-18 (Cycle U20)
+
+**Search scope:** Four parallel agents: (1) GitHub — all repos post-May 15 activity, commit history for FlashMemory.cpp, open issues; (2) English forum/web — threads above #4840, FCS Disable hardware test reports; (3) Chinese sources — CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Bilibili/Gitee; (4) SDK deep-dive — official flash example mutex pattern, `flash_api.c` availability, PRs adding mutex to FlashMemory.
+
+**Key new findings this cycle:**
+- **Official Realtek SDK flash example (`flash/src/main.c`) explicitly wraps every flash HAL call with `device_mutex_lock(RT_DEV_LOCK_FLASH)`** — this is the strongest evidence yet that Realtek considers the mutex mandatory for safe flash access. FlashMemory.cpp's omission is an intentional divergence from the documented correct pattern, not an oversight in the example.
+- **FlashMemory.cpp has only 2 commits in its entire history** (V4.0.8: Oct 29 2024; V4.1.0: Mar 2 2026) — the library was never updated to add mutex protection in any release.
+- **HUB-8735 Issue #10 new error string** — `"hal_voe_send2voe too long 36808 cmd 0x00000206"` — VOE IPC buffer overflow producing `VOE_OPEN_CMD command fail` / `hal_video_open fail` via a different failure path than FCS_I2C_INIT_ERR. Catalog entry for a distinct error route to the same terminal failure.
+- All repos confirmed frozen; no new commits above May 15 (rtos-pro2) / May 5 (arduino-pro2); no forum threads above #4840 indexed anywhere; zero Chinese-language content.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| `project/realtek_amebapro2_v0_example/example_sources/flash/src/main.c` (ameba-rtos-pro2, SHA `68c95b75`) | **Official Realtek SDK flash example wraps every flash operation with `device_mutex_lock(RT_DEV_LOCK_FLASH)`.** Confirmed pattern: `device_mutex_lock(RT_DEV_LOCK_FLASH)` → `flash_read_word()` / `flash_erase_sector()` / `flash_write_word()` / `flash_stream_write()` / `flash_stream_read()` → `device_mutex_unlock(RT_DEV_LOCK_FLASH)`. This is the official Realtek-authored reference implementation demonstrating that the flash bus mutex is required for any user flash access. `FlashMemory.cpp` (the Arduino library) omits this mutex across all 8 public flash operations — making it non-compliant with Realtek's own published safe-usage pattern. This is the clearest authoritative evidence that the RT_DEV_LOCK_FLASH bypass in FlashMemory is an architectural bug. | HIGH |
+| `FlashMemory.cpp` commit history (ameba-arduino-pro2, GitHub log fetched 2026-05-18) | **FlashMemory.cpp has only 2 commits in its entire history:** `581ce487` "Release Version 4.0.8" (Oct 29, 2024, author M-ichae-l) and `93d63514` "Release Version 4.1.0" (Mar 2, 2026, author M-ichae-l). The library was never modified between these two releases, and no mutex was introduced at either point. No PRs adding mutex protection to FlashMemory exist (0 results in open + closed PR search). The mutex omission is not a pending fix — it has been unchanged across the library's entire 18-month public history. | MEDIUM |
+| ideashatch/HUB-8735 Issue #10 (Aug 13, 2025 — open, no fix) | **New error string identified: `"hal_voe_send2voe too long 36808 cmd 0x00000206"`** — VOE IPC command payload (36,808 bytes) exceeds the KM co-processor's receive buffer for command `0x206`. Triggers cascade: `"VOE_OUT_CMD type 2 command fail -1"` → `"VOE_OPEN_CMD command fail"` → `"hal_video_open fail"`. This is a distinct root cause (IPC buffer overflow) from `FCS_I2C_INIT_ERR (0x200A)` but produces the same terminal failure. Relevant to the error catalog: the same terminal strings (`VOE_OPEN_CMD command fail`, `hal_video_open fail`) can originate from at least two independent root causes. PS5268 wide-angle sensor only; not flash-triggered. | LOW |
+| `flash_api.c` (ameba-rtos-pro2 and ameba-arduino-pro2, fetched 2026-05-18) | **`flash_api.c` confirmed NOT publicly available as source.** Referenced in CMake build files (`component/mbed/targets/hal/rtl8735b/config.json` and `application.cmake`) but the `.c` source is not present in the public repo — compiled into prebuilt binary libraries. Any mutex or WIP protection at the mbed layer cannot be verified from public source. Given `hal_flash.c` has no mutex and the official example bypasses `hal_flash.c` by calling mutex + flash API directly, the mbed layer is likely mutex-free as well. | LOW (confirms U17) |
+| All GitHub repos (ameba-rtos-pro2, ameba-arduino-pro2, ideashatch/HUB-8735), fetched 2026-05-18 | **All repos confirmed frozen — identical to U19.** ameba-rtos-pro2 HEAD = `3f95070` (May 15, 2026); ameba-arduino-pro2 main = `93d63514` (Mar 2, 2026); dev = `13961cc` (May 5, 2026); ideashatch/HUB-8735 last commit Dec 2025. No new commits, issues, PRs, or releases in any repo. ameba-arduino-pro2 open issues: #398 (Mar 29, 2026) remains the newest — no new issues related to flash/FCS/camera/VOE/boot. Three independent agents confirmed identical freeze state. | LOW |
+| forum.amebaiot.com thread ceiling (fetched 2026-05-18) | **No threads above #4840 indexed.** Search for thread IDs 4841–4845 returns zero results in any search engine. Forum ceiling remains at thread #4840 ("OTA via HTTPS", ~May 2026, unrelated to our bug). No new relevant threads have appeared since U19. | LOW |
+| All Chinese-language sources (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Bilibili/Gitee, May 18 sweep, two agents) | **Zero new content — unchanged for 20 consecutive cycles.** All Chinese community sites remain 403-blocked. bbs.aithinker.com thread tid=46140 ("BW21-CBV-Kit调试") contains SWD/I2C pin conflict content (confirmed from prior indexed snippet) — unrelated to FCS flash-write camera failure. No new Chinese-language articles, forum posts, or technical discussions about this bug were found in any source. | LOW |
+| Web-wide English search: all key error strings (2026-05-18 sweep) | **Zero indexed results — unchanged.** `"FCS KM_status 0x00002081"`, `"It don't do the sensor initial process"`, `"FCS_I2C_INIT_ERR"`, `"FCS_RUN_DATA_NG_KM"`, `"VOE_OPEN_CMD fail flash"` return zero results anywhere on the public web. No hardware test result for "Camera FCS Mode = Disable" as a flash-write bug workaround has been posted anywhere. This research log remains the only publicly accessible documentation of this bug and its error codes. | LOW |
+
+**Official flash example mutex pattern (reference for user workaround):**
+
+The correct mutex pattern from `flash/src/main.c` (Realtek's official usage reference):
+
+```c
+#include "device_lock.h"
+// Before any flash operation:
+device_mutex_lock(RT_DEV_LOCK_FLASH);    // = device_mutex_lock(1)
+flash_erase_sector(&flash, address);
+device_mutex_unlock(RT_DEV_LOCK_FLASH);  // = device_mutex_unlock(1)
+```
+
+This pattern can be applied in an Arduino sketch to wrap any `FlashMemory.erase()` or `FlashMemory.write()` call, provided `device_lock.h` is accessible from the sketch include path. The header is present in both repos at `component/os/os_dep/include/device_lock.h`.
+
+**VOE terminal-error catalog — two confirmed root cause paths (updated):**
+
+| Root cause | Error sequence | Triggered by |
+|---|---|---|
+| `FCS_I2C_INIT_ERR (0x200A)` | `FCS KM_status 0x2081` → "It don't do the sensor initial process" → `VOE_OPEN_CMD fail` → `hal_video_open fail` | Concurrent SPIC access (FlashMemory + ISP AE/AWB) corrupting FCS data at 0xF0D000 |
+| VOE IPC buffer overflow (cmd 0x206) | `hal_voe_send2voe too long 36808` → `VOE_OUT_CMD type 2 fail -1` → `VOE_OPEN_CMD command fail` → `hal_video_open fail` | Wrong sensor variant (e.g., PS5268 wide-angle vs. standard) |
+
+**SDK state as of 2026-05-18 (Cycle U20 — unchanged from U19):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix
+- Latest pre-release: V4.1.1-QC-V05 (Apr 17, 2026) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (`3f95070`, `afc85a0`) — 3 days no change
+- ameba-arduino-pro2 dev/main: Frozen at May 5, 2026 (`13961cc`) / Mar 2, 2026
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-18 (Cycle U20).**
+
+**Top unresolved actions (updated from U19):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — source-confirmed full FCS bypass via dummy blob; no public hardware test result exists anywhere. Highest priority.
+2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper around `FlashMemory.erase()` / `.write()`** — Realtek's own official flash example confirms this is the required pattern; applying it in Arduino sketch is the minimal-invasive fix candidate. If this eliminates the cold-boot failure, SPIC concurrent-access is confirmed as the root cause and the fix is a one-liner per flash call.
+3. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes; requires RTOS SDK `video_api.h` modification.
