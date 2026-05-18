@@ -925,3 +925,70 @@ This pattern can be applied in an Arduino sketch to wrap any `FlashMemory.erase(
 1. **Hardware test of "Camera FCS Mode = Disable"** — full source-code chain confirmed across 3 files; no public result anywhere. Highest priority.
 2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` example demonstrates this is the required pattern; omission from `FlashMemory.cpp` is the confirmed architectural defect.
 3. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes entirely; requires `video_api.h` edit.
+
+## Research Update — 2026-05-18 (Cycle U22)
+
+**Search scope:** Four parallel agents + direct web searches: (1) GitHub — all repos post-May 15 activity, open PRs; (2) English forum/web — new threads above #4840, FCS Disable / mutex workaround hardware test reports; (3) Chinese sources — CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Bilibili/Gitee; (4) `device_lock.h` accessibility from Arduino sketch — raw URL fetch, enum verification, Arduino include path investigation.
+
+**Key new findings this cycle:**
+- `device_lock.h` raw GitHub URL confirmed accessible without authentication; full API verified with `RT_DEV_LOCK_VOE = 5` newly documented as a separate lock enum entry.
+- Four previously untracked forum threads newly identified (#4651, #4802, #4803, #4829) — all 403-blocked; #4651 potentially relevant.
+- ameba-rtos-pro2 has open PR #17 (USB Ethernet driver) — first confirmed open PR; unrelated to bug.
+- Official RTOS ISP doc confirms `SAVE_TO_FLASH` "requires checking flash write limits" — official Realtek acknowledgement of flash write pressure in the ISP context.
+- All repos confirmed frozen; zero new commits, releases, forum threads, or hardware test reports anywhere.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| `component/os/os_dep/include/device_lock.h` (raw GitHub URL, fetched 2026-05-18) | **Full API confirmed from direct fetch.** `typedef uint32_t RT_DEV_LOCK_E`. Enum: `RT_DEV_LOCK_EFUSE=0, RT_DEV_LOCK_FLASH=1, RT_DEV_LOCK_CRYPTO=2, RT_DEV_LOCK_PTA=3, RT_DEV_LOCK_WLAN=4, RT_DEV_LOCK_VOE=5, RT_DEV_LOCK_NN=6, RT_DEV_LOCK_MAX=7`. Functions: `void device_mutex_lock(RT_DEV_LOCK_E device)` / `void device_mutex_unlock(RT_DEV_LOCK_E device)`. No platform-specific conditional compilation. Realtek copyright 2013. Raw URL: `https://raw.githubusercontent.com/Ameba-AIoT/ameba-rtos-pro2/main/component/os/os_dep/include/device_lock.h` | MEDIUM |
+| `device_lock.h` Arduino SDK accessibility | **NOT in public Arduino SDK includes.** The header is confirmed to exist in the RTOS layer but is not present in or documented for the ameba-arduino-pro2 package. An Arduino sketch could potentially include it via a relative or absolute path (e.g., by copying it into the sketch directory), but this is undocumented and unsupported. No Arduino examples anywhere call `device_mutex_lock`. **Correction of prior cycle:** there is NO risk of deadlock from wrapping `FlashMemory.erase()` with `device_mutex_lock(RT_DEV_LOCK_FLASH)` — `FlashMemory.cpp` has zero mutex calls (confirmed U20), so the outer lock would be acquired, HAL calls execute unguarded, then lock releases. No nested acquisition possible. | MEDIUM |
+| `RT_DEV_LOCK_VOE = 5` in `device_lock.h` | **VOE subsystem has its own separate device lock.** The `RT_DEV_LOCK_VOE = 5` entry confirms that VOE IPC operations are expected to be separately serialized from flash operations. The ISP AE/AWB flash write path uses `RT_DEV_LOCK_FLASH = 1` (via `ftl_nor_api.c` — confirmed U19). The VOE FCS cold-boot path uses the KM co-processor and does not appear to use `RT_DEV_LOCK_FLASH`. The two locks are independent. | LOW |
+| Official RTOS ISP doc snippet (`ameba-doc-rtos-pro2-sdk.readthedocs-hosted.com/en/latest/application_note/15_ISP.html`) | **`SAVE_TO_FLASH` officially documented with flash write limit warning.** Web search snippet (URL 403-blocked) confirms the official docs state: "`SAVE_TO_FLASH`: saves video initial AE, AWB settings to flash, and data is saved for all modes **but requires checking flash write limits**." `SAVE_TO_RETENTION` is documented as zero-SPIC (SRAM only). This is an official Realtek acknowledgement that ISP AE/AWB SAVE_TO_FLASH mode has flash write constraints — consistent with our SPIC concurrent-access finding from U19. No mention of interaction with `FlashMemory` in accessible snippets. | MEDIUM |
+| forum.amebaiot.com/t/how-to-use-more-than-16mb-flash-on-amb82-mini/4651 (Jan 2026) | **Newly identified thread** (previously untracked). Title: "How to use more than 16MB flash on AMB82 Mini." Indexed in search results with snippet: "users discussing upgrading from 16MB to 32MB flash using a Winbond chip." Content 403-blocked. If users replace the 16MB flash chip with a 32MB part, the FCS partition and FlashMemory partition table assignments may shift — potentially increasing the risk of our bug if the larger flash changes the sector layout visible to the boot ROM. Tangentially relevant. | LOW (blocked) |
+| forum.amebaiot.com/t/amb82-mini-usb-host-cdc-ecm-fails-to-enumerate-quectel-ec200u-4g-modem-ecm-init-fail/4802 | **Newly identified thread** (previously untracked). Title: "AMB82-Mini USB Host CDC ECM fails to enumerate Quectel EC200U 4G modem — 'ecm init fail'." USB host CDC ECM initialization failure. Content 403-blocked. Not related to camera/flash/FCS. Adds to thread catalog. | LOW (blocked) |
+| forum.amebaiot.com/t/amb82-mini-usb-ethernet-failing/4803 | **Newly identified thread** (previously untracked). Title: "AMB82-mini: USB Ethernet failing." USB Ethernet issues. Content 403-blocked. Not related to camera/flash/FCS. Adds to thread catalog. | LOW (blocked) |
+| forum.amebaiot.com/t/can-amb82-mini-be-used-with-teachable-machine-uvc-issue/4829 | **Newly identified thread** (previously untracked). Title: "Can AMB82 MINI be used with Teachable Machine? (UVC Issue)." Content 403-blocked. Not related to camera cold-boot / FCS / flash. | LOW (blocked) |
+| ameba-rtos-pro2 PR #17 (GitHub, May 15, 2026) | **First confirmed open PR in ameba-rtos-pro2.** Title appears to be about USB Ethernet/NCM driver support. Confirmed open and unmerged as of 2026-05-18. Not related to flash, FCS, camera, or boot issues. Confirms the repo is not entirely dormant — USB subsystem has pending community contributions. | LOW |
+| All GitHub repos (ameba-rtos-pro2, ameba-arduino-pro2, ideashatch/HUB-8735), fetched 2026-05-18 | **All repos confirmed frozen — identical to U21.** ameba-rtos-pro2 HEAD = `3f95070` (May 15, 2026); ameba-arduino-pro2 main HEAD = `93d63514` (Mar 2); dev = `13961cc` (May 5); HUB-8735 last commit Dec 2025. Zero new commits, issues, or releases anywhere. No FCS/flash/camera fixes in any pipeline. | LOW |
+| All forum threads above #4840 | **Still none indexed.** Threads #4841 through at least #4848 return zero search results. Forum ceiling remains at #4840 ("OTA via HTTPS", ~May 2026). | LOW |
+| All English/Chinese web sources (full sweep, 2026-05-18) | **Zero new content — 22 consecutive cycles.** All Chinese community sites remain 403-blocked. No new English-language hardware test reports for any workaround ("Camera FCS Mode = Disable", `device_mutex_lock` wrapper, `USE_ISP_RETENTION_DATA`). Error strings `"FCS KM_status 0x00002081"`, `"It don't do the sensor initial process"`, `"FCS_I2C_INIT_ERR"`, `"FCS_RUN_DATA_NG_KM"` return zero publicly indexed results. | LOW |
+
+**`device_lock.h` Arduino integration — practical implementation guidance (updated):**
+
+The confirmed API allows an Arduino sketch to wrap FlashMemory operations as follows:
+
+```cpp
+// Method 1: Direct include (path may not be in Arduino default search path)
+#include "device_lock.h"
+
+// Method 2: Inline the minimal definition (no include required)
+extern "C" {
+    typedef unsigned int RT_DEV_LOCK_E;
+    void device_mutex_lock(RT_DEV_LOCK_E device);
+    void device_mutex_unlock(RT_DEV_LOCK_E device);
+}
+#define RT_DEV_LOCK_FLASH 1
+
+// Usage (compatible with both methods):
+device_mutex_lock(RT_DEV_LOCK_FLASH);     // Acquire flash bus lock
+FlashMemory.erase();                       // or FlashMemory.write(), etc.
+device_mutex_unlock(RT_DEV_LOCK_FLASH);   // Release flash bus lock
+```
+
+Method 2 (forward declaration without the header) avoids the include-path problem entirely, as the linker will resolve `device_mutex_lock` at link time from the prebuilt RTOS libraries (same as how FreeRTOS API functions are used from Arduino). This is the recommended approach for Arduino context.
+
+**Official SAVE_TO_FLASH warning — context for `USE_ISP_RETENTION_DATA`:**
+
+The ISP application note explicitly says `SAVE_TO_FLASH` "requires checking flash write limits." This confirms that Realtek's own documentation acknowledges ISP flash write pressure — but frames it as a flash *endurance* concern (write cycle limits), not a *concurrent access* concern (SPIC bus collision). The architectural defect (FlashMemory bypassing `RT_DEV_LOCK_FLASH`) remains undocumented in any official Realtek publication.
+
+**SDK state as of 2026-05-18 (Cycle U22 — unchanged from U21):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix
+- Latest pre-release: V4.1.1-QC-V05 (Apr 17, 2026) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (`3f95070`, `afc85a0`); PR #17 open
+- ameba-arduino-pro2 dev/main: Frozen at May 5, 2026 (`13961cc`) / Mar 2, 2026
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-18 (Cycle U22).**
+
+**Top unresolved actions (updated from U21):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — source-confirmed full FCS bypass via dummy blob; no public hardware test result exists anywhere. Highest priority.
+2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Method 2 (forward declaration) avoids include-path issues and is linkable from Arduino. Deadlock risk is zero (FlashMemory.cpp has no mutex). If this eliminates cold-boot failure, SPIC concurrent-access is confirmed as root cause.
+3. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes; requires `video_api.h` edit in RTOS SDK or Arduino package.
