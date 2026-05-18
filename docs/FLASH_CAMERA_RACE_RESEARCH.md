@@ -889,3 +889,39 @@ This pattern can be applied in an Arduino sketch to wrap any `FlashMemory.erase(
 1. **Hardware test of "Camera FCS Mode = Disable"** — source-confirmed full FCS bypass via dummy blob; no public hardware test result exists anywhere. Highest priority.
 2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper around `FlashMemory.erase()` / `.write()`** — Realtek's own official flash example confirms this is the required pattern; applying it in Arduino sketch is the minimal-invasive fix candidate. If this eliminates the cold-boot failure, SPIC concurrent-access is confirmed as the root cause and the fix is a one-liner per flash call.
 3. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes; requires RTOS SDK `video_api.h` modification.
+
+## Research Update — 2026-05-18 (Cycle U21)
+
+**Search scope:** Six parallel search threads + direct GitHub/web fetches: (1) GitHub — new commits in ameba-rtos-pro2 and ameba-arduino-pro2 after May 15 / May 5; new issues and PRs; (2) English forum/web — new threads above #4840, FCS Disable / mutex workaround hardware test reports; (3) Chinese sources — CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Bilibili/Gitee; (4) amebaiot.com Flash Memory docs — any new mutex warnings; (5) New documentation portals — aiot.realmcu.com AMB82-mini guide; ameba-doc-rtos-pro2-sdk flash layout page; (6) PlatformIO issue #4809 disambiguation.
+
+**Key new findings this cycle:**
+- **PR #408 "Add I2C Slave"** opened May 15, 2026 on ameba-arduino-pro2 — confirms the Arduino repo has some active development; unrelated to flash/FCS.
+- **Forum thread #4835 newly indexed** — "AMB82-mini Deep Sleep: Is AON GPIO pin 21 unreadable after `PowerMode.begin()`? (Bus Fault observed)" — tangentially relevant because deep sleep + wake cycles may involve a cold boot scenario; content still 403-blocked.
+- **PlatformIO issue #4809 disambiguation** — the GitHub `platformio/platformio-core` issue #4809 ("Board Support: REALTEK AMB82-Mini") is a feature request for PlatformIO board support, entirely distinct from forum thread #4809 ("AMB82-Mini starts running Arduino code before turning on 3.3V"). Both previously appeared in searches as "#4809"; they are unrelated.
+- Both repos confirmed frozen at identical HEADs as Cycle U20. No new releases, no new bug reports, no new Chinese-language content anywhere. Error strings remain unindexed.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| ameba-rtos-pro2 commits (direct GitHub fetch, 2026-05-18) | **Confirmed frozen — identical to U20.** HEAD = `3f95070` "Sync upstream 7343927…" (May 15, 2026). Twenty most recent commits retrieved and verified: newest are `3f95070`, `afc85a0` (May 15), `d2676f1`, `9c8b6f6` (May 15) — all unchanged from U20. No flash, FCS, VOE, boot, HAL, or sensor changes in any of the 20 most recent commits. | LOW |
+| ameba-arduino-pro2 dev branch commits (direct GitHub fetch, 2026-05-18) | **Confirmed frozen.** HEAD = `13961ccf` (May 5, 2026) — unchanged from U20. | LOW |
+| ameba-arduino-pro2 PR #408 "Add I2C Slave" (opened May 15, 2026, by kevinlookl) | **New PR identified — unrelated to bug.** Changes the Wire library to add I2C Slave functionality (3 commits). There are no other open PRs besides #408. All previously tracked open issues remain unchanged — newest is #398 (Mar 29, 2026). No PRs or issues about FlashMemory, mutex, FCS, camera, or boot failure exist in open or closed history. Confirms the Arduino repo has some ongoing activity but no FCS/flash bug triage. | LOW |
+| forum.amebaiot.com/t/.../4835 — "AMB82-mini Deep Sleep: Is AON GPIO pin 21 unreadable after `PowerMode.begin()`? (Bus Fault observed)" | **Newly indexed forum thread.** Confirmed present in search engine results for the first time this cycle. Topic: user configures deep sleep (RETENTION=0) with wake-on-external-HIGH on AON GPIO pin 21; observes Bus Fault after `PowerMode.begin()`. Content is 403-blocked; snippet indicates the thread is in the "Arduino" category and involves power/sleep cycles. Tangential relevance: if a device with a pending FlashMemory operation enters deep sleep, the resulting power cycle (sleep → wake) may constitute a "cold boot" that catches the flash operation in a vulnerable state. The bus fault itself is a separate failure from FCS_I2C_INIT_ERR. Not confirmed as flash-write-triggered. | LOW (blocked) |
+| PlatformIO issue #4809 (`platformio/platformio-core` GitHub) | **Disambiguation confirmed.** This is a feature request to add REALTEK AMB82-Mini board support to PlatformIO (opened by user `whittenator`). It is entirely separate from and unrelated to forum.amebaiot.com/t/.../4809 ("AMB82-Mini starts running Arduino code before turning on 3.3V"). Prior research (U15) may have ambiguously referenced both as "#4809" — the forum thread describes a power-sequencing anomaly; the PlatformIO issue is a board-support feature request. Neither contains a fix for our bug. | LOW (disambiguation) |
+| aiot.realmcu.com AMB82-mini documentation (2026-05-18) | **Still 403-blocked.** Direct fetch of `aiot.realmcu.com/en/latest/arduino/arduino_guide/sdk_intro/evb_guides/evb_amb82mini.html` returns HTTP 403. The new Realtek documentation portal remains inaccessible without developer login. | LOW (blocked) |
+| ameba-doc-rtos-pro2-sdk.readthedocs-hosted.com flash layout docs (2026-05-18) | **Still 403-blocked.** `ameba-doc-rtos-pro2-sdk.readthedocs-hosted.com/en/latest/application_note/08_FLASHLAYOUT.html` returns HTTP 403. | LOW (blocked) |
+| amebaiot.com Flash Memory Read Write Word docs (2026-05-18) | **Still 403-blocked.** `amebaiot.com/en/amebapro2-arduino-flash-writeword/` returns HTTP 403. No new mutex warning or FCS interaction note accessible from the official Flash Memory documentation. | LOW (blocked) |
+| All Chinese-language sources (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Bilibili/Gitee, May 18 sweep) | **Zero new content — unchanged for 21 consecutive cycles.** CSDN article `139222964` (AMB82-MINI Arduino method intro) and `139584304` (SD card AI recognition) are the only indexed AMB82 Chinese articles; neither discusses FCS flash-write camera failure. All Chinese community forums remain 403-blocked. No new BW21-CBV or RTL8735B Chinese-language technical posts found anywhere. | LOW |
+| Web-wide English search: all key error strings (2026-05-18 sweep) | **Zero indexed results — unchanged across all 21 cycles.** `"FCS KM_status 0x00002081"`, `"It don't do the sensor initial process"`, `"FCS_I2C_INIT_ERR"`, `"FCS_RUN_DATA_NG_KM"`, `"VOE_OPEN_CMD fail flash"` return zero publicly indexed results anywhere on the accessible web. No hardware test result for any of the three proposed workarounds ("Camera FCS Mode = Disable", `device_mutex_lock` wrapper, `USE_ISP_RETENTION_DATA`) has been posted anywhere. | LOW |
+
+**SDK state as of 2026-05-18 (Cycle U21 — unchanged from U20):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix
+- Latest pre-release: V4.1.1-QC-V05 (Apr 17, 2026) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (`3f95070`, `afc85a0`) — 3 days no change
+- ameba-arduino-pro2 dev/main: Frozen at May 5, 2026 (`13961cc`) / Mar 2, 2026
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-18 (Cycle U21).**
+
+**Open actions — unchanged from U20 (no new hardware test results found):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — full source-code chain confirmed across 3 files; no public result anywhere. Highest priority.
+2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` example demonstrates this is the required pattern; omission from `FlashMemory.cpp` is the confirmed architectural defect.
+3. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes entirely; requires `video_api.h` edit.
