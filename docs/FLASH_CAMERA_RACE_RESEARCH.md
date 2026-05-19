@@ -992,3 +992,42 @@ The ISP application note explicitly says `SAVE_TO_FLASH` "requires checking flas
 1. **Hardware test of "Camera FCS Mode = Disable"** — source-confirmed full FCS bypass via dummy blob; no public hardware test result exists anywhere. Highest priority.
 2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Method 2 (forward declaration) avoids include-path issues and is linkable from Arduino. Deadlock risk is zero (FlashMemory.cpp has no mutex). If this eliminates cold-boot failure, SPIC concurrent-access is confirmed as root cause.
 3. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes; requires `video_api.h` edit in RTOS SDK or Arduino package.
+
+## Research Update — 2026-05-19 (Cycle U23)
+
+**Search scope:** Six parallel search threads + direct GitHub fetches: (1) GitHub — all repos post-May 18 activity, new commits/PRs/issues; (2) English forum/web — new threads above #4840, FCS Disable / mutex workaround hardware test reports; (3) Chinese sources — CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Bilibili/Gitee; (4) SDK doc portals — aiot.realmcu.com AMB82-mini guide, readthedocs ISP docs, flash memory docs; (5) ameba-rtos-pro2 HEAD comparison to confirm freeze; (6) ameba-arduino-pro2 dev/main branch activity.
+
+**Key new findings this cycle:**
+- **ameba-arduino-pro2 dev branch: new commit `cd0bd40` (May 18, 2026)** — "Add I2C Slave (#408)", merging PR #408 (kevinlookl). Wire library updated with I2C Slave support and timeout API. Unrelated to flash/FCS bug. This is the first new commit to any Ameba repo since our last cycle cutoff.
+- **PR #408 merged and closed** — was listed as open in U21; now confirmed merged May 18 by M-ichae-l. Zero open PRs remain in ameba-arduino-pro2.
+- **ameba-rtos-pro2 frozen confirmed from comparison**: `3f95070...HEAD` shows identical — zero new commits since May 15, 2026.
+- **Forum thread #4865 newly identified**: "AmebaPro2 uartfwburn - Can't flash. 'fail for download 0' after 'programing' is 100% complete" — about the UART firmware upload tool failing after 100% progress. Distinct failure class (upload tool, not runtime flash + camera race). 403-blocked; not related to our bug.
+- All documentation portals remain 403-blocked; no new Chinese-language content; no hardware test results for any proposed workaround.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| ameba-arduino-pro2 dev branch commit `cd0bd40` (May 18, 2026, M-ichae-l) | **New commit after U22 cutoff.** Content: merge of PR #408 "Add I2C Slave" — adds I2C Slave functionality to the Wire library (3 sub-commits covering I2C Slave implementation, coding style compliance, and Wire timeout API). Tested on AMB82-mini with ambpro2_arduino V4.1.1 / Arduino IDE 2.3.7 / Windows 11. **Unrelated to flash/FCS/camera/boot failure bug.** | LOW (unrelated) |
+| ameba-arduino-pro2 PR #408 (closed May 18, 2026) | **Merged by M-ichae-l.** Was open in U21 ("Add I2C Slave", kevinlookl). Zero open PRs remain. No new PRs related to FlashMemory, mutex, FCS, or camera exist in open or closed history. | LOW (unrelated) |
+| ameba-rtos-pro2 `3f95070...HEAD` comparison (direct GitHub fetch) | **Frozen definitively confirmed.** GitHub compare endpoint returns: "3f95070 and HEAD are identical." Zero new commits in 4 days since May 15, 2026. No flash, FCS, VOE, boot, or sensor changes in any observable pipeline. | LOW |
+| ameba-arduino-pro2 main branch (direct GitHub fetch) | **Still frozen.** HEAD = `93d63514` "Release Version 4.1.0" (March 2, 2026) — identical to all prior cycles. ameba-arduino-pro2 main has not been updated in 78 days. The I2C Slave commit (`cd0bd40`, May 18) landed in `dev` only. | LOW |
+| ameba-arduino-pro2 issues (direct GitHub fetch) | **12 open issues confirmed; newest is #398 (Mar 29, 2026).** No new issues after May 18, 2026. No issues about FlashMemory, FCS, camera, VOE, or boot failure exist anywhere in the issue tracker (open or closed). | LOW |
+| ameba-rtos-pro2 issues (direct GitHub fetch) | **3 open issues (unchanged since U8):** #16 (AI glass src path, Jan 27, 2026), #4 (chip support, Apr 25, 2025), #3 (antivirus detection, Apr 21, 2025). No new issues. No FCS/flash/camera bug filed. | LOW |
+| ideashatch/HUB-8735 issues (direct GitHub fetch) | **1 open issue: #10** (PS5268 sensor ID fail, Aug 13, 2025). No new issues after May 18, 2026. Unchanged since U10. | LOW |
+| forum.amebaiot.com thread #4865 (search engine snippet, 403 content) | **Newly identified thread above prior ceiling (#4840).** Title: "AmebaPro2 uartfwburn - Can't flash. 'fail for download 0' after 'programing' is 100% complete." About the UART firmware upload tool completing 100% progress (81920/81920 bytes) but reporting "fail for download 0" at verification. This is a **firmware flash-tool failure** (programming interface), distinct from our runtime `FlashMemory` + camera race condition. Thread 403-blocked; not related to our bug. Highest indexed thread ID found this cycle. | LOW (blocked, unrelated) |
+| ameba-arduino-pro2 releases (direct GitHub fetch) | **No new releases.** Latest stable = V4.1.0 (Mar 2, 2026). Latest pre-release = V4.1.1-QC-V05 (Mar 6, 2026). No V4.1.1 stable or QC-V06+ exists. Confirmed by direct releases page fetch. | LOW |
+| aiot.realmcu.com, ameba-doc-arduino-sdk.readthedocs-hosted.com, ameba-doc-rtos-pro2-sdk.readthedocs-hosted.com | **All documentation portals still 403-blocked.** ISP app note (`15_ISP.html`), AMB82-mini Arduino guide (aiot.realmcu.com), Flash Memory example docs, Flash layout app note — all require developer authentication. No new public documentation found. | LOW (blocked) |
+| GitHub Issue #251 (ameba-arduino-pro2) — retrospective confirmation | **Normal working FCS boot log confirmed from issue.** Boot sequence shows: `FCS KM_status 0x00000082 err 0x00000000` + `FCS TM_status 0x00000001` → `fcs OK`. This is the healthy reference boot (matches the reference at top of this document). Issue itself is about DDR memory exhaustion during ControlLED example — unrelated to flash writes. | LOW (background) |
+| All English/Chinese web sources (full sweep, 2026-05-19) | **Zero new content — 23 consecutive cycles with no new indexed results.** Error strings `"FCS KM_status 0x00002081"`, `"It don't do the sensor initial process"`, `"FCS_I2C_INIT_ERR"`, `"FCS_RUN_DATA_NG_KM"`, `"VOE_OPEN_CMD fail flash"` return zero publicly indexed results on the accessible web. No hardware test result for any proposed workaround has been posted anywhere. All Chinese community sites (bbs.aithinker.com, bbs.ai-thinker.com, CSDN, Zhihu, EEWorld, 21IC, Bilibili, Gitee) remain 403-blocked or return zero relevant content. | LOW |
+
+**SDK state as of 2026-05-19 (Cycle U23):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix
+- Latest pre-release: V4.1.1-QC-V05 (Mar 6, 2026) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (`3f95070`, `afc85a0`) — 4 days no change
+- ameba-arduino-pro2 dev: `cd0bd40` (May 18, 2026, I2C Slave — unrelated); main: frozen Mar 2, 2026
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-19 (Cycle U23).**
+
+**Top unresolved actions (unchanged from U22 — no new hardware test results found):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — full source-code chain confirmed (postbuild.cpp + video_boot.c + video_api.c); dummy blob → invalid MFCS magic → KM bypass (0x0083) → camera re-init via application layer. No public hardware test result exists anywhere. Highest priority.
+2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates this is the required pattern for safe flash access; FlashMemory.cpp's omission is the confirmed architectural defect. Forward-declaration pattern callable from Arduino sketch without include-path issues.
+3. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes at source; requires `video_api.h` edit.
