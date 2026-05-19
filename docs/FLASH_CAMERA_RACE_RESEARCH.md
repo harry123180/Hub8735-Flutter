@@ -1063,3 +1063,55 @@ The ISP application note explicitly says `SAVE_TO_FLASH` "requires checking flas
 1. **Hardware test of "Camera FCS Mode = Disable"** — full source-code chain confirmed (postbuild.cpp + video_boot.c + video_api.c); dummy blob → invalid MFCS magic → KM bypass (0x0083) → camera re-init via application layer. No public hardware test result exists anywhere. Highest priority.
 2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates this is the required pattern; FlashMemory.cpp omission is the confirmed architectural defect; forward-declaration pattern avoids include-path issues from Arduino.
 3. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes; requires `video_api.h` edit.
+
+## Research Update — 2026-05-19 (Cycle U25)
+
+**Search scope:** Six parallel agents + direct GitHub fetches: (1) GitHub — all repos post-May 18 activity, new commits/PRs/issues/releases; (2) English forum/web — new threads above #4865, FCS Disable / mutex / USE_ISP_RETENTION_DATA workaround reports; (3) Chinese sources — CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Bilibili/Gitee; (4) SDK deep-dive — `hal_video_release_note.txt` from new May 19 build, `FlashMemory.cpp` full source and commit history, `hal_video_common.h` FCS field, `video_api.h` USE_ISP_RETENTION_DATA status; (5) `GitHub_release_note.txt` full content; (6) RTL8735C/AmebaPro3 SDK availability and aiot.realmcu.com access.
+
+**Key new findings this cycle:**
+- **`ameba-arduino-pro2` dev branch has two new commits dated May 19, 2026** — `3d53672` "Update Code base and add cam IMX681_5M (#409)" (122 files changed) and `7db1c7d` "Pre Release Version 4.1.1". Pre-release `4.1.1-build20260519` is packaged in the early index JSON but not yet published as a GitHub Release tag.
+- **`voe.bin` and `boot.bin` were updated** in the new build (binary blobs — no diff possible). `hal_video_release_note.txt` was also updated.
+- **`hal_video_release_note.txt` full content retrieved** — newest documented VOE version is **1.7.1.0 (04/21/2026)**, which only fixes "dual sensor id FCS mirror/flip issue" (unrelated to our `FCS_I2C_INIT_ERR` boot bug). **No FCS cold-boot fix, no flash-mutex entry, no sensor-init-after-flash-write fix is documented anywhere in the 46-version release history.**
+- **`FlashMemory.cpp` full source confirmed** — 3 total commits in history (Jul 2024, Sep 2025 ×2); still zero mutex calls across all 8 flash operations. Unchanged in May 19 build.
+- **New sibling-chip thread identified** — forum.amebaiot.com/t/rtl8720c-flash-log/1239: "RTL8720C — after saving data to FLASH, log shows boot failure on next restart" — same symptom class on the RTL8720C (sibling of RTL8735B). 403-blocked.
+- **New Chinese platform thread**: bbs.ai-thinker.com thread tid=46317 "[BW20]二次开发学习4 FLASH读写" — BW20 (sibling platform) flash read/write tutorial. 403-blocked.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| ameba-arduino-pro2 dev branch commits `3d53672` + `7db1c7d` (May 19, 2026) | **New pre-release `4.1.1-build20260519` published to index JSON** (not a GitHub Release tag). Adds IMX681_5M camera sensor support; updates `voe.bin`, `boot.bin`, `partition.bin`, `certificate.bin`, `hal_video.h`, `hal_video_common.h`, `hal_isp.h`, `isp_ctrl_api.h`, `libarduino_sensor_sel.a` (all sensors), and many other files. Tools bumped to v1.4.11. PR #409 description: "API codebase updates with minor bug fix." No FCS or flash specifics mentioned. | MEDIUM |
+| `hal_video_release_note.txt` — full file fetched from dev branch (46 versions, through 1.7.1.0) | **No FCS cold-boot / flash-write / SPIC-mutex fix in any VOE version.** Newest entry: VOE 1.7.1.0 (04/21/2026) — "Fix dual sensor id FCS mirror/flip issue" (dual-sensor mirror/flip, unrelated to our `FCS_I2C_INIT_ERR` boot bug). The complete 2025-2026 VOE release history (1.6.0.0 through 1.7.1.0) contains no reference to: flash write interaction, SPIC mutex, `FCS_I2C_INIT_ERR`, camera cold-boot failure, or `hal_flash` WIP management. The updated `voe.bin` in `4.1.1-build20260519` may contain undocumented fixes (it is a binary blob), but no documented fix exists. | MEDIUM |
+| `FlashMemory.cpp` — full source confirmed from dev branch | **Three total commits in history** (correction of prior "2 commits" finding): (1) `d9022ef` Jul 9, 2024 "Add feature Flash Memory (#252)"; (2) `d1a988f` Sep 30, 2025 "Add Arduino printf (#336)"; (3) `4fdfbec` Sep 30, 2025 "Optimize codes (#337)". All 8 flash operations (`read`, `write`, `readWord`, `writeWord`, `eraseSector`, `eraseWord`, `flash_stream_read`, `flash_stream_write`) call flash HAL functions directly with **zero mutex/lock calls**. File NOT changed in May 19 build. | LOW (confirms prior) |
+| `video_api.h` — `USE_ISP_RETENTION_DATA` status in May 19 build | **Still commented out.** `// #define USE_ISP_RETENTION_DATA` at the equivalent of prior-cycle line 95. `isp_retention_data_t` struct exists but is dead code. Only change in `video_api.h` in commit `3d53672`: two new fields (`isp_gain_mode`, `isp_gain`) added to `video_pre_init_params_s` inside `#ifdef ARDUINO_SDK` — unrelated to FCS or flash mutex. | LOW (confirms prior) |
+| `hal_video_common.h` — `commandLine_s.fcs` field confirmed | **`int fcs;` field confirmed in `commandLine_s` struct**: comment reads "1: fcs flow ROM load sensor, 0: normal flow need init. sensor." This is the field that is set to 0 in the application layer when FCS Disable is selected (see Cycle U12 analysis). File was updated in `3d53672` but the specific diff was not publicly visible (large commit, GitHub UI truncation). | LOW (confirms prior) |
+| `rtl8735b_voe_status.h` — error codes in May 19 build | **`FCS_I2C_INIT_ERR = 0x200A` and `FCS_RUN_DATA_NG_KM = 0x2081` UNCHANGED.** File does not appear in commit `3d53672` changed-file list — it was not modified. Error code definitions match all prior cycles exactly. | LOW (confirms prior) |
+| `GitHub_release_note.txt` (ameba-rtos-pro2) — full content fetched | **25 entries, newest is `7343927f` "[amebapro2][mmf] avoid task recreate in mmf start" (May 15, 2026).** No new entries since U23. Two video entries present: `[video] update sensor driver` (SHA `4de7607b`) and `[video] update sensor driver & video related default setting` (SHA `ccd2b17c`) — neither references FCS, flash bus, mutex, or camera boot. The release note is an exact match for what was known from U23. | LOW (confirms prior) |
+| `4.1.1-build20260519` release_log.txt changelog | **Entries for V4.1.1 (2026/05/19):** "Add I2C Slave; Update Code base; Update API for AMB82-zero and SWD off logic; Minor bug fix; Update ameba_pro2_tools 1.4.11 — Add camera sensor IMX681_5M." No FCS changes, no flash mutex, no camera boot fix mentioned anywhere in the changelog going back to V4.1.1-QC-V05 (March 6, 2026). | LOW |
+| forum.amebaiot.com/t/rtl8720c-flash-log/1239 (date unknown, Google-indexed) | **NEW sibling-chip precedent.** Thread title: "RTL8720C — 数据保存到FLASH后再次启动 log显示启动失败" ("After saving data to FLASH on RTL8720C, log shows boot failure on next restart"). This is the most semantically similar public report found across all research cycles: same symptom class (flash write → next boot failure) on the RTL8720C (sibling chip to RTL8735B, same Realtek Ameba family). Content is 403-blocked. Confirms this flash→boot failure class affects multiple Realtek Ameba platform generations. | MEDIUM (blocked) |
+| bbs.ai-thinker.com thread tid=46317 (Google-indexed) | **Newly identified BW20 flash tutorial.** Title: "[BW20]二次开发学习4 FLASH读写" ("BW20 secondary development lesson 4: FLASH read/write"). BW20 is an Ai-Thinker module on the same Realtek Ameba platform family as BW21-CBV. Content is 403-blocked. May contain relevant flash usage patterns from the Chinese developer community, but no evidence it covers the FCS camera boot interaction. | LOW (blocked) |
+| ameba-rtos-pro2 (fetched 2026-05-19 via compare endpoint) | **Confirmed frozen — `3f95070...HEAD` are identical.** Zero new commits since May 15, 2026. No flash, FCS, VOE, boot, or sensor-init changes in any observable pipeline. | LOW |
+| All English/Chinese web sources (full sweep, 2026-05-19) | **Zero new content — 25 consecutive cycles with no new indexed results.** All Chinese community sites remain 403-blocked. No hardware test of any workaround posted anywhere. Error strings `"FCS KM_status 0x00002081"`, `"It don't do the sensor initial process"`, `"FCS_I2C_INIT_ERR"`, `"FCS_RUN_DATA_NG_KM"` return zero publicly indexed results. Forum ceiling confirmed at thread #4865 (uartfwburn fail). | LOW |
+
+**`4.1.1-build20260519` relevance assessment:**
+
+The updated `voe.bin` in this build is the only plausible vehicle for an undocumented FCS cold-boot fix. Against this:
+- The accompanying `hal_video_release_note.txt` (which tracks all VOE binary changes) shows no new VOE entry beyond 1.7.1.0 (04/21/2026) — suggesting the `voe.bin` update may be a routine binary update bundled with the IMX681_5M sensor addition, not a new VOE release.
+- The PR #409 description mentions only "API codebase updates with minor bug fix" and IMX681_5M sensor; no FCS or flash-write context.
+- All error code constants (`FCS_I2C_INIT_ERR`, `FCS_RUN_DATA_NG_KM`) are unchanged in the new build, which is consistent with no fix to the KM's FCS error reporting.
+- The `FlashMemory.cpp` mutex omission — the confirmed root cause from U19 — is **unchanged**.
+
+**Conclusion:** The `4.1.1-build20260519` build does not fix the flash-write → FCS cold-boot camera failure bug. The architectural defect (FlashMemory.cpp bypassing `RT_DEV_LOCK_FLASH`) remains present in all SDK versions through this pre-release.
+
+**SDK state as of 2026-05-19 (Cycle U25):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix
+- Latest pre-release: V4.1.1-QC-V05 (Mar 6, 2026 tag; last QC update Apr 30, 2026) — no fix
+- `4.1.1-build20260519` in index JSON only (not a GitHub Release tag) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (`3f95070`)
+- ameba-arduino-pro2 dev: `7db1c7d` (May 19, 2026, Pre Release 4.1.1 — no fix)
+- ameba-arduino-pro2 main: Frozen at Mar 2, 2026 (`93d63514`)
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-19 (Cycle U25).**
+
+**Top unresolved actions (unchanged from U24):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — full source-code chain confirmed across 3 files; no public hardware test result exists anywhere. Highest priority.
+2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; FlashMemory.cpp omission is the confirmed architectural defect.
+3. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes; requires `video_api.h` edit.
