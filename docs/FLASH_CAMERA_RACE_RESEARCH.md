@@ -1521,3 +1521,51 @@ This provides independent evidence that the `RT_DEV_LOCK_FLASH` bypass in FlashM
 1. **Hardware test of "Camera FCS Mode = Disable"** — full source-code chain confirmed across 3 files (postbuild.cpp + video_boot.c + video_api.c); dummy blob → invalid MFCS magic → KM bypass (0x0083) → camera re-init via application layer. No public hardware test result exists anywhere. Highest priority.
 2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; FlashMemory.cpp omission is confirmed architectural defect; forward-declaration callable from Arduino without include-path issues (`extern "C" void device_mutex_lock(unsigned int)` / `#define RT_DEV_LOCK_FLASH 1`).
 3. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes; requires uncommenting `// #define USE_ISP_RETENTION_DATA` in `video_api.h`.
+
+## Research Update — 2026-05-22 (Cycle U35)
+
+**Search scope:** Four parallel agents: (1) GitHub — all repos post-May 19, 2026 activity (commits/PRs/issues/releases); (2) English forum/web — new threads above #4868, FCS Disable / `device_mutex_lock` / `USE_ISP_RETENTION_DATA` hardware test reports; (3) Chinese sources — comprehensive sweep (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/bbs.ai-thinker.com/Bilibili/Gitee); (4) SDK deep-dive — FlashMemory.cpp mutex state, FTL mutex source confirmation, VOE version beyond 1.7.1.0, community wrappers, documentation portal accessibility.
+
+**Key new findings this cycle:**
+- **V4.1.0 release notes: "Add `cameraClearQItem` function"** — previously undocumented in this research log. Potentially useful for recovering from the "[VOE][WARN]slot full" mild case, but not a root-cause fix.
+- **`ftl.c` mutex usage confirmed from a new source** — `device_mutex_lock(RT_DEV_LOCK_FLASH)` confirmed in `ftl.c` directly (prior research U19 cited `ftl_nor_api.c` callbacks); confirms the architectural defect from an additional file.
+- Both repos frozen at same HEADs as U34; PRs #17 and #410 still open.
+- All error strings unindexed for 35th consecutive cycle; all docs still 403-blocked; zero new Chinese content; no hardware test results anywhere.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| ameba-arduino-pro2 V4.1.0 release notes (Mar 2, 2026, retrieved 2026-05-22) | **"Add `cameraClearQItem` function"** — previously undocumented in this research log. Present in the current stable SDK. Function may allow user code to explicitly clear camera queue entries after a "[VOE][WARN]slot full" mild-case deadlock. Exact signature, parameters, and scope are not documented in any publicly accessible source. If it clears MMF queue slots (not just frame buffers), calling it after detecting a slot-full condition could allow camera re-initialization without a full power cycle. Not a fix for the FCS_I2C_INIT_ERR cold-boot root cause. V4.1.0 also includes "Update FlashMemory.h" — exact changes in that update not confirmed from public changelog; no mutex addition was confirmed in FlashMemory.cpp source (zero mutex calls across all 8 operations, unchanged). | LOW |
+| `ftl.c` (ameba-rtos-pro2, direct source fetch, 2026-05-22) | **`RT_DEV_LOCK_FLASH` mutex usage confirmed from `ftl.c` directly.** `device_mutex_lock(RT_DEV_LOCK_FLASH)` / `device_mutex_unlock(RT_DEV_LOCK_FLASH)` found in `ftl.c` flash read operations — a second confirmation of the mutex pattern in the FTL layer (prior research U19 documented the same in `ftl_nor_api.c` callbacks). Both files use the system-wide flash mutex. FlashMemory.cpp remains the sole exception that never acquires `RT_DEV_LOCK_FLASH`. | LOW (confirms U19) |
+| ameba-rtos-pro2 commits (two agents, 2026-05-22) | **Confirmed frozen.** HEAD = `3f95070` (May 15, 2026). Zero new commits in 7 days. PR #17 ("fix: ethernet USB driver buffer overflow", orbisai0security) still open and unmerged. No flash, FCS, VOE, boot, HAL, or sensor changes in any observable pipeline. | LOW |
+| ameba-arduino-pro2 dev/main branches and releases (two agents, 2026-05-22) | **Confirmed frozen.** dev HEAD = `7db1c7d` (May 19, 2026). main HEAD = `93d63514` (Mar 2, 2026, 81 days frozen). Latest stable = V4.1.0; latest pre-release = V4.1.1-QC-V06 (tag Mar 6, 2026; release notes through May 19, 2026). No V4.1.1-QC-V07 or stable V4.1.1. PR #410 ("Update SPI API for SPI1 switching", kevinlookl) still open and unmerged. | LOW |
+| ideashatch/HUB-8735 issues (2026-05-22) | **1 open issue: #10** (PS5268 sensor id fail, Aug 2025). No new issues. Unchanged since U10. | LOW |
+| Community FlashMemory mutex wrappers (GitHub gist/fork/web search, 2026-05-22) | **Zero community implementations found.** No Arduino library, GitHub gist, or public repository wraps FlashMemory operations with `device_mutex_lock(RT_DEV_LOCK_FLASH)`. No community PRs to ameba-arduino-pro2 address this. The architectural defect (confirmed U19–U20) remains uncorrected by any public third-party code after 35 research cycles. | LOW |
+| VOE version search (2026-05-22) | **No VOE version beyond 1.7.1.0 found anywhere.** `voe.bin` is updated silently in SDK releases without explicit VOE version strings in changelogs. Last explicitly documented: VOE 1.7.1.0 (04/21/2026, RTOS SDK release note). | LOW |
+| forum.amebaiot.com threads (sweep, 2026-05-22) | **No new threads above #4868 indexed.** Forum ceiling remains at #4868 ("NN Model loading from Memory instead of Flash or SD card failing with exceptions"). No new threads related to flash/FCS/camera cold-boot failure. Thread #4302 ("[VOE]frame_end: sensor didn't initialize done!") still 403-blocked; Google snippets confirm it shows "Camera FCS Mode: Disable" as part of a working config, but no causal explanation of flash-write interaction is visible. | LOW |
+| All documentation portals (2026-05-22) | **All still 403-blocked.** ISP application note (15_ISP.html), Flash Layout (08_FLASHLAYOUT.html), Sensor Bringup Flow (37_Introduction_For_Sensor_Bringup_Flow.html), aiot.realmcu.com AMB82-mini guide (CN and EN), Flash Memory example guide — all return HTTP 403 for the 35th consecutive cycle. | LOW (blocked) |
+| Web-wide error string sweep (2026-05-22, two agents) | **Zero indexed results — 35 consecutive cycles.** `"FCS KM_status 0x00002081"`, `"It don't do the sensor initial process"`, `"FCS_I2C_INIT_ERR"`, `"FCS_RUN_DATA_NG_KM"`, `"VOE_OPEN_CMD fail flash"`, `"USE_ISP_RETENTION_DATA"`, `"device_mutex_lock RT_DEV_LOCK_FLASH"` — all return zero results on the public web. No hardware test result for any of the three proposed workarounds has been posted anywhere in any language. | LOW |
+| All Chinese-language sources (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/bbs.ai-thinker.com/Bilibili/Gitee/mcublog.cn, May 22 sweep, two agents) | **Zero new content — 35th consecutive cycle.** All Chinese community sites remain 403-blocked or return zero relevant results. bbs.aithinker.com BW21-CBV subforum indexed threads (home surveillance, DIY camera, BLE, unboxing) confirmed still inaccessible. No Chinese-language forum posts or articles discuss FCS flash-write camera failure on RTL8735B or BW21-CBV. | LOW |
+
+**`cameraClearQItem` — relevance to slot-full mild case:**
+
+The "[VOE][WARN]slot full" deadlock (mild case from 70× flash writes) occurs when the MMF module cannot enqueue into an already-consumed slot during re-initialization. If `cameraClearQItem()` clears individual queue slot entries (rather than frame buffers), it could allow recovery without a full power cycle:
+1. Detect the slot-full condition (by monitoring VOE warnings or checking a status API)
+2. Call `cameraClearQItem()` to release the stuck slot
+3. Re-open the camera stream normally
+
+Without public documentation of the function's signature and scope, this remains speculative. The three upstream MMF fixes (U9, U19) — queue-init check (Apr 1), JPEG exception (Apr 1), and task-recreate guard (May 15) — address the slot-full root cause at the SDK level; `cameraClearQItem` may address it at the application level. Function is present in V4.1.0 stable but was not previously catalogued in this research log.
+
+**SDK state as of 2026-05-22 (Cycle U35 — unchanged from U34):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix; newly noted `cameraClearQItem` function
+- Latest pre-release: V4.1.1-QC-V06 (tag Mar 6, 2026; release notes through May 19, 2026) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (`3f95070`) — 7 days no change; PR #17 open
+- ameba-arduino-pro2 dev: Frozen at May 19, 2026 (`7db1c7d`) — 3 days no change; PR #410 open
+- ameba-arduino-pro2 main: Frozen at Mar 2, 2026 (`93d63514`) — 81 days no change
+- ameba-tool-rtos-pro2: Frozen at March 9, 2026 (`c1d70e7`)
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-22 (Cycle U35).**
+
+**Top unresolved actions (unchanged from U34):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — full source-code chain confirmed across 3 files (postbuild.cpp + video_boot.c + video_api.c); dummy blob → invalid MFCS magic → KM bypass (0x0083) → camera re-init via application layer. No public hardware test result exists anywhere. Highest priority.
+2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; FlashMemory.cpp omission is the confirmed architectural defect; forward-declaration callable from Arduino (`extern "C" void device_mutex_lock(unsigned int)` / `#define RT_DEV_LOCK_FLASH 1`).
+3. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes; requires uncommenting `// #define USE_ISP_RETENTION_DATA` in `video_api.h`.
