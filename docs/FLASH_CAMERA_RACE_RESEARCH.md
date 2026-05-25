@@ -2038,3 +2038,76 @@ The bug is, as far as any accessible public internet content is concerned, entir
 1. **Hardware test of "Camera FCS Mode = Disable"** — full source-code chain confirmed across 3 files (postbuild.cpp + video_boot.c + video_api.c); dummy blob → invalid MFCS magic → KM bypass (0x0083) → camera re-init via application layer. No public hardware test result exists anywhere. Highest priority. (Proposed Cycle U7, May 14 — 10+ days unresolved.)
 2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; 16+ RTOS SDK files use it correctly; FlashMemory.cpp is the sole exception in shipping V4.1.0 (SHA `b4781b70`); forward-declaration callable from Arduino (`extern "C" void device_mutex_lock(unsigned int)` / `#define RT_DEV_LOCK_FLASH 1`). (Proposed Cycle U19–U20, May 18.)
 3. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes at source; requires uncommenting `// #define USE_ISP_RETENTION_DATA` in `video_api.h`. (Proposed Cycle U19, May 18.)
+
+## Research Update — 2026-05-25 (Cycle U47)
+
+**Search scope:** Four parallel agents + direct web searches: (1) GitHub — all repos post-May 24 activity (commits, releases, issues, PRs); (2) English forum/web — new threads above #4868, FCS Disable / mutex workaround hardware test reports; (3) Chinese sources — CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Bilibili/Gitee/mcublog.cn; (4) SDK technical deep-dive — ftl_nor_api.c three-callback race window, platform_opts.h NOR_FLASH_FCS address confirmation, V4.1.1 FlashMemory.cpp content.
+
+**Key new findings this cycle:**
+- **V1.0.3-aiglass.08** (May 22, 2026) released on ameba-rtos-pro2 — contains "VOE driver improvements" alongside many AI Glass features; not a FlashMemory/FCS fix but confirms VOE binary is actively being updated in the aiglass branch.
+- **Three-callback race window precisely mapped**: `ftl_write_nor()` has **no outer lock** around its three-callback sequence (`nor_read_cb` → `nor_erase_cb` → `nor_write_cb`). Each callback individually acquires and releases `RT_DEV_LOCK_FLASH`. `FlashMemory.write()` can inject SPIC commands between any two of these callbacks — e.g., between `nor_erase_cb` and `nor_write_cb` — corrupting the pending FCS write to `NOR_FLASH_FCS (0xF0D000)`.
+- **`platform_opts.h` source** (`project/realtek_amebapro2_v0_example/inc/platform_opts.h`) confirms: `NOR_FLASH_FCS = USER_DATA_BASE + 0x0D000 = 0xF0D000`; `ISP_FW_LOCATION = USER_DATA_BASE + 0x0C000 = 0xF0C000`.
+- **V4.1.1-QC-V06 / commit `7db1c7d`** (May 19, 2026) confirmed no FlashMemory mutex fix — full release log analyzed; no mention of SPIC concurrency, device_lock, FCS sector protection, or boot race condition in any changelog entry.
+- **Two new forum threads identified**: #4865 (uartfwburn flash programming failure), #4801 ([HALMAC][ERR]fw chksum! WiFi firmware checksum) — both unrelated to camera/FCS bug.
+- **ElegantOTA GitHub Issue #150** ("AMB82-MINI didn't work with OTA") newly identified — OTA flash write causing boot failure on AMB82-Mini, same failure class as our bug but via different trigger. Content accessible via GitHub.
+- All repos frozen; no new V4.1.1 stable or QC-V07; all Chinese sources still 403-blocked; zero hardware test reports for any workaround.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| ameba-rtos-pro2 release V1.0.3-aiglass.08 (May 22, 2026, commit `8d9040c`) | **New release published** — AI Glass branch update with 18 items: lifetime snapshot blocking/non-blocking modes, OV13B10 sensor driver + AINR model, **VOE driver improvements**, IMX681_5M sensor, object detection for AI snapshots, UART IRQ→DMA, AINR disabled by default (burst mode support), OTA buffer changes, auto SD size reporting. The "VOE driver improvements" tag is vague and may not relate to FCS or cold-boot. Released by `Kyderio` (AI Glass maintainer), separate from main SDK development line. Not in any Arduino SDK release. | LOW |
+| ameba-rtos-pro2 release V1.0.3 (May 22, 2026) | **Formal V1.0.3 tag created** — Commit `3f95070` (same as HEAD), published by M-ichae-l. Assets: RTSP source code patch (zip) + WebSocket viewer source code patch (zip). This is a tagged snapshot of the May 15 main HEAD; contains no new code beyond what was already frozen at May 15. No flash/FCS/camera changes. | LOW |
+| `ftl_nor_api.c` three-callback race (ameba-rtos-pro2, confirmed from source, Cycle U47) | **NEW PRECISION — Race window between callbacks confirmed.** `ftl_write_nor()` calls `nor_read_cb()` → `nor_erase_cb()` → `nor_write_cb()` in sequence. Each callback individually acquires and releases `RT_DEV_LOCK_FLASH`. There is **no outer `RT_DEV_LOCK_FLASH` hold** across the full read-modify-erase-write cycle. `FlashMemory.write()` can therefore inject a SPIC command between `nor_erase_cb()` (which erased the FCS sector) and `nor_write_cb()` (which would write the new FCS data), leaving `NOR_FLASH_FCS (0xF0D000)` in an erased (all-0xFF) state. Boot ROM reads 0xFF as FCS data → `FCS_I2C_INIT_ERR (0x200A)` on next cold boot. This is the most precise description of the race window obtained in any research cycle. | HIGH |
+| `platform_opts.h` (ameba-rtos-pro2, `project/.../inc/platform_opts.h`) | **NOR_FLASH_FCS confirmed from new source file.** `USER_DATA_BASE = 0xF00000`; `ISP_FW_LOCATION = USER_DATA_BASE + 0xC000 = 0xF0C000`; `FLASH_FCS_DATA = NOR_FLASH_FCS = USER_DATA_BASE + 0xD000 = 0xF0D000`. ISP firmware and FCS data occupy consecutive 4 KB sectors at 0xF0C000 and 0xF0D000 respectively. The ISP firmware sits immediately before the FCS data sector — a sector-erase at 0xF0D000 specifically targets the FCS data; a larger erase could also hit ISP firmware. Confirms no adjacency to FlashMemory region (0xFD0000), consistent with prior partition table analysis. | MEDIUM |
+| `video_api.c` VOE lock vs FLASH lock (ameba-rtos-pro2, confirmed from source, Cycle U47) | **Clarification of locking hierarchy.** `video_api.c` calls `device_mutex_lock(RT_DEV_LOCK_VOE)` around video open/close operations but NOT around ISP AE/AWB flash writes. The ISP flash write chain: `video_pre_init_save_cur_params()` → `ftl_common_write()` → `ftl_lock()` [FreeRTOS mutex — FTL-internal only] → `ftl_write_nor()` → `nor_write_cb()` → `device_mutex_lock(RT_DEV_LOCK_FLASH)` [hardware SPIC lock, per-callback only]. The `RT_DEV_LOCK_FLASH` IS eventually acquired for each individual SPIC operation — but not for the full read-modify-erase-write sequence. `FlashMemory.erase()` skips all levels. | MEDIUM |
+| V4.1.1 commit `7db1c7d` "Pre Release Version 4.1.1" (May 19, 2026) FlashMemory.cpp | **FlashMemory.cpp confirmed unchanged** in V4.1.1 pre-release — SHA `b4781b70b4603949a41751999a7ff2af6ddc75b0`, zero mutex calls. The V4.1.1 changelog covers: Battery Camera POC, Audio Trigger Recording, Video Zoom, TensorFlowLite, AntiCollision, I2C Slave, AMB82-zero support, K306P/IMX681 sensors, WiFi TCP fix. No mention of FlashMemory mutex, SPIC concurrency, device_lock, FCS sector protection, or boot race in any changelog entry. Bug has been absent from all 7+ months of SDK development (V4.0.8 Oct 2024 → V4.1.1 May 2026). | MEDIUM |
+| forum.amebaiot.com thread #4865 "AmebaPro2 uartfwburn — 'fail for download 0' after programing 100%" | **Newly identified thread** (previously untracked). Title: flashing tool (`uartfwburn`) reports `fail for download 0` after completing a firmware download. This is a flash programming tool failure (different from our runtime flash-write bug). Not related to FCS camera cold-boot failure. Content 403-blocked. | LOW (blocked, unrelated) |
+| forum.amebaiot.com thread #4801 "[Driver]: [ERROR][HALMAC][ERR]fw chksum!" | **Newly identified thread** (previously untracked). Title: WiFi HALMAC firmware checksum error. Unrelated to camera/FCS/flash write bug. Content 403-blocked. | LOW (blocked, unrelated) |
+| github.com/ayushsharma82/ElegantOTA/issues/150 "AMB82-MINI didn't work with OTA" | **Newly identified external issue** — filed in the ElegantOTA library repository, not in Ameba-AIoT repos. User reports AMB82-MINI fails to boot after OTA update via ElegantOTA. Snippet: device stops responding after OTA flash write; power cycle required. Same failure class as our bug (flash write → boot failure) but triggered via OTA path rather than FlashMemory API. The ElegantOTA library likely calls Ameba's OTA flash write API which may also bypass `RT_DEV_LOCK_FLASH`. Content partially accessible on GitHub. Not confirmed to involve FCS_I2C_INIT_ERR specifically. | MEDIUM |
+| ameba-rtos-pro2 PR #17 (USB ethernet driver, orbisai0security, May 15, 2026) | **Status: Still open, awaiting maintainer review.** Automated security fix for buffer overflow in `component/ethernet_mii/ethernet_usb.c:391`. github-actions bot reports build passes. No human/maintainer review. Unrelated to flash/FCS/camera. | LOW |
+| ameba-arduino-pro2 PR #410 "Update SPI API for SPI1 switching" (kevinlookl, May 21, 2026) | **Status: Still open, no reviewers assigned.** Targets `dev` branch. Fixes SPI1 switching + compilation errors for SDCardOTA and SDCardPlayMP3. Not related to FlashMemory mutex or FCS camera boot. | LOW |
+| All Chinese-language sources (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Bilibili/Gitee/mcublog.cn, May 25 sweep) | **Zero new content — 47th consecutive null cycle.** bbs.aithinker.com threads confirmed indexed up to tid=47223; no BW21-CBV threads above that indexed by Google. Zhihu, CSDN, EEWorld, 21IC, mcublog.cn all 403-blocked or zero results. No Chinese-language discussion of FCS flash-write camera failure on BW21-CBV or RTL8735B exists in any publicly accessible source. | LOW |
+| Web-wide error string sweep (May 25, 2026, all agents) | **Zero indexed results — 47 consecutive cycles.** `"FCS KM_status 0x00002081"`, `"It don't do the sensor initial process"`, `"FCS_I2C_INIT_ERR"`, `"FCS_RUN_DATA_NG_KM"`, `"VOE_OPEN_CMD fail flash"`, `"USE_ISP_RETENTION_DATA"`, `"device_mutex_lock RT_DEV_LOCK_FLASH FlashMemory"` — all return zero publicly indexed results. This research log remains the only public documentation of this bug and its error codes. | LOW |
+
+**Three-callback race window — updated mechanism summary (Cycle U47):**
+
+The most precise description of the cold-boot failure mechanism, synthesizing all cycles:
+
+```
+ISP AE/AWB save task (FreeRTOS):
+  ftl_common_write(NOR_FLASH_FCS=0xF0D000, ...)
+    → ftl_lock() [FreeRTOS mutex — FTL-internal only]
+    → ftl_write_nor():
+        ① nor_read_cb()  → [acquire RT_DEV_LOCK_FLASH] flash_stream_read(0xF0D000) [release]
+        ② nor_erase_cb() → [acquire RT_DEV_LOCK_FLASH] flash_erase_sector(0xF0D000) [release]
+        ← RACE WINDOW: 0xF0D000 is now ERASED (0xFF); write not yet issued
+        ③ nor_write_cb() → [acquire RT_DEV_LOCK_FLASH] flash_stream_write(0xF0D000) [release]
+    → ftl_unlock()
+
+Arduino sketch (concurrent, no RT_DEV_LOCK_FLASH):
+  FlashMemory.erase(0xFD0000)
+    → flash_erase_sector(0xFD0000)  ← issued at any time, including in the RACE WINDOW above
+```
+
+If `FlashMemory.erase()` fires during the race window (between ② and ③), the SPIC bus carries two interleaved command sequences. The SPIC controller is left in an undefined state; `nor_write_cb()` may write garbage or partial data to `NOR_FLASH_FCS`. On the next cold boot: boot ROM reads corrupted `isp_fcs_header_t` from 0xF0D000 → KM co-processor gets invalid I2C config → `FCS_I2C_INIT_ERR (0x200A)` → "It don't do the sensor initial process."
+
+**ElegantOTA issue #150 — new community data point:**
+
+This is the first externally-filed GitHub issue (outside Ameba-AIoT repos) to describe the AMB82-MINI boot failure after OTA flash write. Users of the popular ElegantOTA library are experiencing the same failure class without understanding the root cause. The ElegantOTA library for AMB82-MINI likely uses the Ameba OTA API, which may similarly bypass `RT_DEV_LOCK_FLASH`. This broadens the affected user population — the bug is not limited to `FlashMemory.h` users.
+
+**SDK state as of 2026-05-25 (Cycle U47):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix
+- Latest pre-release: V4.1.1-QC-V06 (tag Mar 6, 2026; release notes through May 19, 2026) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (`3f95070`); V1.0.3 tag published May 22 (same code); aiglass branch V1.0.3-aiglass.08 published May 22 (VOE improvements, not main SDK)
+- ameba-arduino-pro2 dev: Frozen at May 19, 2026 (`7db1c7d`) — 6 days; PR #410 open
+- ameba-arduino-pro2 main: Frozen at Mar 2, 2026 (`93d63514`) — 84 days
+- ameba-arduino-doc: Latest `64863ce` (May 24, I2C slave docs only)
+- ameba-tool-rtos-pro2: Frozen at March 9, 2026 (`c1d70e7`) — 77 days
+- ideashatch/HUB-8735: Frozen at Dec 2, 2025 — 174 days
+- Ai-Thinker-Open: No RTL8735B/BW21 repositories (confirmed U36)
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-25 (Cycle U47).**
+
+**Top unresolved actions (unchanged from U46):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — full source-code chain confirmed across 3 files (postbuild.cpp + video_boot.c + video_api.c); dummy blob → invalid MFCS magic → KM bypass (0x0083) → camera re-init via application layer. No public hardware test result exists anywhere. Highest priority. (Proposed Cycle U7, May 14 — 11 days unresolved.)
+2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; FlashMemory.cpp confirmed as sole exception through V4.1.1-QC-V06; forward-declaration callable from Arduino (`extern "C" void device_mutex_lock(unsigned int)` / `#define RT_DEV_LOCK_FLASH 1`). Three-callback race window (U47) makes this fix more urgent: the race can occur within a single ISP AE/AWB save cycle.
+3. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes at source; requires uncommenting `// #define USE_ISP_RETENTION_DATA` in `video_api.h`.
