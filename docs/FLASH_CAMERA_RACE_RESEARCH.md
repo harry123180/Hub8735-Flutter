@@ -2107,6 +2107,64 @@ This is the first externally-filed GitHub issue (outside Ameba-AIoT repos) to de
 
 **No confirmed fix. Bug remains unpatched as of 2026-05-25 (Cycle U47).**
 
+## Research Update — 2026-05-25 (Cycle U48)
+
+**Search scope:** Four parallel agents + direct web/GitHub searches: (1) GitHub — ameba-rtos-pro2 commit page and compare endpoint; ameba-arduino-pro2 dev/main commits, releases, issues, PRs after May 22; ameba-arduino-doc commits; (2) English forum/web — new threads above #4868, FCS Disable / `device_mutex_lock` / `USE_ISP_RETENTION_DATA` hardware test reports; (3) Chinese sources — CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/bbs.ai-thinker.com/Bilibili/Gitee/mcublog.cn; (4) ElegantOTA Issue #150 full content retrieval (correction of U47 characterization); forum thread ceiling sweep (#4869–#4930); error string sweeps.
+
+**Key new findings this cycle:**
+- **ElegantOTA Issue #150 CORRECTION** — The issue documented in U47 as "OTA flash write causing boot failure on AMB82-Mini" is actually a **compilation failure** (missing `sdkconfig.h` from AsyncTCP library, filed Dec 11, 2023), NOT a runtime flash→camera boot failure. It was closed as "not planned"/stale. U47's MEDIUM priority assignment was based on a search engine snippet that mischaracterized the issue. The U47 entry is hereby corrected.
+- **V4.1.1 stable release confirmed absent** — search results confirm V4.1.1 "pre-release" entries appear at March 6, 2026 (earliest QC build), with no separate stable V4.1.1 tag published.
+- All other channels are frozen / blocked / empty for the 48th consecutive cycle.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| github.com/ayushsharma82/ElegantOTA/issues/150 (fetched 2026-05-25, full content) | **CORRECTION of U47 finding.** Issue #150 filed by rkuo2000 on Dec 11, 2023 (closed as "not planned"/stale): describes a **compilation failure** — "fatal error: sdkconfig.h: No such file or directory" when AsyncTCP library tries to compile for AMB82-MINI. This is a build-time dependency problem (AsyncTCP requires ESP32/ESP-IDF `sdkconfig.h`, which does not exist in the Ameba SDK). There is NO mention of: runtime OTA failure, boot failure after flash write, camera failure, FCS error, or `RT_DEV_LOCK_FLASH`. U47's characterization of this issue as "flash write causing boot failure on AMB82-Mini" was incorrect. The broader population of AMB82-MINI OTA users affected by our bug class remains unquantified. | LOW (correction — removes MEDIUM from U47) |
+| ameba-rtos-pro2 compare `3f95070...HEAD` + commit page (direct fetch, 2026-05-25) | **Confirmed frozen — identical to U47.** GitHub compare endpoint returns "identical." Most recent commits still: `3f95070` (May 15), `afc85a0` (May 15), `9c8b6f6` (May 15), `d2676f1` (May 15). Zero new commits in 10 days since May 15, 2026. PR #17 (ethernet USB driver security fix, orbisai0security) still open and unmerged. No flash, FCS, VOE, boot, HAL, sensor, or mutex changes. | LOW |
+| ameba-arduino-pro2 dev branch commits (direct fetch, 2026-05-25) | **Confirmed frozen — identical to U47.** HEAD = `7db1c7d` "Pre Release Version 4.1.1" (May 19, 2026) — 6 days frozen. Zero new commits. No keyword matches for flash, mutex, FCS, camera, VOE, device_lock, or RT_DEV_LOCK_FLASH in any of the 35+ visible commits. Only open PR: #410 ("Update SPI API for SPI1 switching", kevinlookl, May 21) — no reviewers assigned, no activity since filing. | LOW |
+| ameba-arduino-pro2 releases (direct fetch, 2026-05-25) | **No new releases.** Latest stable = V4.1.0 (Mar 2, 2026). Latest pre-release = V4.1.1-QC-V06 (tag created Mar 6, 2026; release notes accumulate through May 19, 2026). "V4.1.1 stable" does not exist as a GitHub Release tag. Multiple search queries confirm no stable V4.1.1 has been published. | LOW |
+| ameba-arduino-pro2 open issues (direct fetch, 2026-05-25) | **Unchanged — 11–17 open issues; newest = #398 (Mar 29, 2026).** No new issues after March 29. No issues about FlashMemory, FCS, camera, VOE, or boot failure. Bug entirely unreported after 48 research cycles. 321 closed PRs — none related to FlashMemory mutex or FCS cold-boot fix. | LOW |
+| forum.amebaiot.com threads above #4868 (search sweep, 2026-05-25) | **No new threads indexed.** Targeted searches for IDs #4869–#4930 returned zero results from the forum domain. Forum ceiling confirmed at #4868 ("NN Model loading from Memory instead of Flash or SD card failing with exceptions"). Direct forum fetches return HTTP 403. | LOW |
+| Web-wide error string sweep (2026-05-25, multiple queries) | **Zero indexed results — 48 consecutive cycles.** `"FCS KM_status 0x00002081"`, `"It don't do the sensor initial process"`, `"FCS_I2C_INIT_ERR"`, `"FCS_RUN_DATA_NG_KM"`, `"VOE_OPEN_CMD fail flash"`, `"USE_ISP_RETENTION_DATA"`, `"device_mutex_lock RT_DEV_LOCK_FLASH FlashMemory"`, `"AMB82 device_mutex_lock camera workaround"` — all return zero publicly indexed results anywhere on the accessible web. This research log remains the only public documentation of this bug and its error codes. No hardware test result for any of the three proposed workarounds has been posted anywhere in any language. | LOW |
+| Hardware test confirmation search — all three workarounds (2026-05-25) | **Zero results.** Targeted searches for "Camera FCS Mode = Disable" + flash workaround, `device_mutex_lock` + AMB82 + camera, `USE_ISP_RETENTION_DATA` + tested all return zero results. "Camera FCS Mode = Disable" appears in code/config examples as a normal configuration choice (per Cycle U15), not as a documented fix for flash-write cold-boot failure. No community member has publicly reported testing any of the three proposed workarounds on hardware as of 2026-05-25. | LOW |
+| Chinese-language search sweep (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/bbs.ai-thinker.com/mcublog.cn/Bilibili/Gitee, 2026-05-25) | **Zero new content — 48th consecutive null cycle.** bbs.aithinker.com BW21-CBV subforum threads confirmed up to tid=47223 (home surveillance, DIY camera, BLE, unboxing) — all 403-blocked. mcublog.cn BW21-CBV article (April 2026, Feishu bot LED+photo) 403-blocked. No new Chinese-language forum posts or articles discuss FCS flash-write camera failure on RTL8735B or BW21-CBV. | LOW |
+
+**ElegantOTA Issue #150 — correction of U47:**
+
+U47 documented this issue as: "User reports AMB82-MINI fails to boot after OTA update via ElegantOTA. Snippet: device stops responding after OTA flash write; power cycle required. Same failure class as our bug (flash write → boot failure)… MEDIUM priority."
+
+Direct content retrieval (this cycle) confirms: the issue is a December 2023 **compilation error** (`sdkconfig.h` not found when compiling AsyncTCP for Ameba), closed as stale/not-planned. There is no mention of OTA runtime failure, flash write causing boot failure, camera failure, FCS error, or any behavior resembling our bug. The U47 snippet characterization was a search-engine hallucination artifact.
+
+**Corrected U47 ElegantOTA finding priority: LOW (not MEDIUM).**
+
+**Cumulative freeze summary (as of Cycle U48):**
+
+| Repository | Frozen since | Days frozen |
+|---|---|---|
+| ameba-rtos-pro2 main | May 15, 2026 (`3f95070`) | **10 days** |
+| ameba-arduino-pro2 dev | May 19, 2026 (`7db1c7d`) | **6 days** |
+| ameba-arduino-pro2 main | Mar 2, 2026 (`93d63514`) | **84 days** |
+| ameba-tool-rtos-pro2 | Mar 9, 2026 (`c1d70e7`) | **77 days** |
+| ideashatch/HUB-8735 | Dec 2, 2025 | **174 days** |
+| Ai-Thinker-Open | No RTL8735B repos exist | — |
+
+**SDK state as of 2026-05-25 (Cycle U48 — unchanged from U47):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix; FlashMemory.cpp SHA `b4781b70`, zero mutex calls
+- Latest pre-release: V4.1.1-QC-V06 (tag Mar 6, 2026; release notes through May 19, 2026) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (`3f95070`) — 10 days; V1.0.3 tag (May 22, same code); PR #17 open
+- ameba-arduino-pro2 dev: Frozen at May 19, 2026 (`7db1c7d`) — 6 days; PR #410 open
+- ameba-arduino-pro2 main: Frozen at Mar 2, 2026 (`93d63514`) — 84 days
+- ameba-arduino-doc: Latest `64863ce` (May 24, I2C slave docs only — unrelated)
+- ameba-tool-rtos-pro2: Frozen at March 9, 2026 (`c1d70e7`) — 77 days
+- ideashatch/HUB-8735: Frozen at Dec 2, 2025 — 174 days
+- Ai-Thinker-Open: No RTL8735B/BW21 repositories (confirmed U36)
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-25 (Cycle U48).**
+
+**Top unresolved actions (unchanged from U47):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — full source-code chain confirmed across 3 files (postbuild.cpp + video_boot.c + video_api.c); dummy blob → invalid MFCS magic → KM bypass (0x0083) → camera re-init via application layer. No public hardware test result exists anywhere. Highest priority. (Proposed Cycle U7, May 14 — 11 days unresolved.)
+2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; 16+ RTOS SDK files use it correctly; FlashMemory.cpp confirmed sole exception across the entire SDK (SHA `b4781b70`); forward-declaration callable from Arduino (`extern "C" void device_mutex_lock(unsigned int)` / `#define RT_DEV_LOCK_FLASH 1`). (Proposed Cycles U19–U20, May 18.)
+3. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes at source; requires uncommenting `// #define USE_ISP_RETENTION_DATA` in `video_api.h`; zero SPIC ops from ISP when enabled. (Proposed Cycle U19, May 18.)
+
 **Top unresolved actions (unchanged from U46):**
 1. **Hardware test of "Camera FCS Mode = Disable"** — full source-code chain confirmed across 3 files (postbuild.cpp + video_boot.c + video_api.c); dummy blob → invalid MFCS magic → KM bypass (0x0083) → camera re-init via application layer. No public hardware test result exists anywhere. Highest priority. (Proposed Cycle U7, May 14 — 11 days unresolved.)
 2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; FlashMemory.cpp confirmed as sole exception through V4.1.1-QC-V06; forward-declaration callable from Arduino (`extern "C" void device_mutex_lock(unsigned int)` / `#define RT_DEV_LOCK_FLASH 1`). Three-callback race window (U47) makes this fix more urgent: the race can occur within a single ISP AE/AWB save cycle.
