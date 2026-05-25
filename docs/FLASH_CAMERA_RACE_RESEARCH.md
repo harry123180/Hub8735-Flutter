@@ -2217,3 +2217,75 @@ The U47 entry (under "ElegantOTA GitHub Issue #150") should be considered retrac
 1. **Hardware test of "Camera FCS Mode = Disable"** — full source-code chain confirmed across 3 files (postbuild.cpp + video_boot.c + video_api.c); dummy blob → invalid MFCS magic → KM bypass (0x0083) → camera re-init via application layer. No public hardware test result exists anywhere. Highest priority. (Proposed Cycle U7, May 14 — 11 days unresolved.)
 2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; FlashMemory.cpp omission is confirmed as sole exception in shipping V4.1.0 (SHA `b4781b70`); forward-declaration callable from Arduino (`extern "C" void device_mutex_lock(unsigned int)` / `#define RT_DEV_LOCK_FLASH 1`). The three-callback race window precisely mapped in U47 makes this the most mechanistically grounded workaround.
 3. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes at source; requires uncommenting `// #define USE_ISP_RETENTION_DATA` in `video_api.h`.
+
+## Research Update — 2026-05-25 (Cycle U49)
+
+**Search scope:** Three background agents (English forums, Chinese sources, technical documentation) whose results arrived after U48 was committed: (1) Background agent `ad32601c33ccfd37f` — technical documentation + GitHub API sweep (completed after U48 commit); (2) Background agent `a87eb93f35caf6cda` — Chinese sources sweep (completed after U48 commit); (3) Background agent `a558f7d5ab160a535` — technical documentation coordination (completed after U48 commit). All three agents ran in parallel during the U48 research cycle; their consolidated findings are documented here.
+
+**Key new findings this cycle:**
+- **ameba-arduino-pro2 Issues #152 and #251 newly documented** — closest publicly accessible boot failure logs for this hardware family; flash address map confirmed from real boot logs (Issue #251).
+- **Forum threads #4302, #4321, #4777, #3429 newly catalogued** — camera/VOE sensor init failure reports on AMB82-MINI; #4302 (sensor didn't initialize, FCS mode settings visible) is closest to our failure mode.
+- All repos confirmed frozen at same HEADs as U48; no new commits, releases, or PRs.
+- No hardware test results for any workaround; all error strings still unindexed; all Chinese sources still 403-blocked.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| ameba-arduino-pro2 Issue #152 "RTL8735BM programming not working" (GitHub, confirmed 2026-05-25) | **Boot ROM NOR flash detection failure pattern.** Issue documents the classic RTL8735B boot failure cascade when NOR flash is not properly detected: `[SPIF Err]Invalid ID` → `[BOOT Err]Flash init error (io_mod=0, pin_sel=0)` → NAND fallback (`snafc init error`) → cyclic reboot loop → eventual UART boot fallback. This is the boot sequence that occurs when the boot ROM cannot read the flash at all — a more severe failure than our FCS_I2C_INIT_ERR, but documents the hardware's response to flash data corruption. URL: https://github.com/Ameba-AIoT/ameba-arduino-pro2/issues/152 | LOW (background; different root cause — hardware SPI config, not runtime FCS race) |
+| ameba-arduino-pro2 Issue #251 "ControlLED abort" (GitHub, confirmed 2026-05-25) | **Real boot log documents FCS/ISP_IQ/VOE flash load addresses.** Boot log in this issue reveals the flash memory map used at runtime: VOE image loads from `0x807e080` (size `0x7ff80`); FW_ISP_IQ loads from `0x8061080` (size `0x1cf80`); ISP_IQ (runtime) at `0x8461080` (size `0x1af80`). The actual failure in the issue was DDR overallocation (`76dfffe0` exceeds `75c00000` boundary) — unrelated to flash write conflict — but the load addresses confirm the flash partition layout used in practice. URL: https://github.com/Ameba-AIoT/ameba-arduino-pro2/issues/251 | LOW (useful flash map; different failure mode) |
+| forum.amebaiot.com thread #4302 "[VOE]frame_end: sensor didn't initialize done!" (search snippet, Aug 2025) | **Closest community-reported symptom to our failure mode.** Multiple AMB82-MINI boards showing `[VOE]frame_end: sensor didn't initialize done!`. Thread references "Camera FCS Mode: Disable" setting in the Arduino IDE Tools menu — the same FCS Mode toggle we identified as Workaround #1. No confirmed flash write as trigger in search snippet; full thread 403-blocked. However, this is the most symptomatically similar public thread found to date. URL: https://forum.amebaiot.com/t/voe-frame-end-sensor-didnt-initialize-done/4302 | LOW-MEDIUM (symptom match — "sensor didn't initialize"; FCS Mode connection; 403-blocked so causal chain unconfirmed) |
+| forum.amebaiot.com thread #4321 "Camera sensor init failed (GC2053)" (search snippet, Aug 2025) | **VOE_OUT_CMD error variant.** User reports "VOE not init" / `VOE_OUT_CMD type 2 command fail -1` error on AMB82-Pro2 SDK v4.0.9-build20250805 with GC2053 custom sensor. No flash write as trigger; appears to be sensor driver configuration issue. GC2053 is not the primary shipped sensor for AMB82-MINI. Not directly related to FCS cold-boot failure triggered by flash writes. URL: https://forum.amebaiot.com/t/camera-sensor-init-failed-gc2053/4321 | LOW (different error path and sensor; no flash trigger) |
+| forum.amebaiot.com thread #4777 "AMB82-Mini onboard camera sensor identification and VOE setup for wireless video and I2C" (search snippet, 2026) | **Recent VOE setup thread.** Discusses AMB82-MINI camera sensor identification and VOE initialization for wireless video + I2C. No flash conflict content found in search snippet; full thread 403-blocked. No relevance to FCS cold-boot flash race. URL: https://forum.amebaiot.com/t/amb82-mini-onboard-camera-sensor-identification-and-voe-setup-for-wireless-video-and-i2c/4777 | LOW (blocked; unrelated) |
+| forum.amebaiot.com thread #3429 "Sensor fail on AMB82 Mini" (search snippet) | **General sensor failure thread.** Sensor initialization failure on AMB82-MINI. No flash write causal link found in search snippet; full thread 403-blocked. URL: https://forum.amebaiot.com/t/sensor-fail-on-amb82-mini/3429 | LOW (blocked; insufficient detail) |
+| ameba-rtos-pro2 compare `3f95070...HEAD` (direct GitHub fetch, 2026-05-25) | **Confirmed frozen — identical to U48.** "3f95070 and HEAD are identical." Zero new commits since May 15, 2026 — now 10+ days frozen. PR #17 (ethernet USB driver fix, orbisai0security) still open and unmerged. No flash, FCS, VOE, boot, HAL, sensor, or mutex changes in any observable pipeline. | LOW |
+| ameba-arduino-pro2 dev branch (direct GitHub fetch, 2026-05-25) | **Confirmed frozen — identical to U48.** HEAD = `7db1c7d` (May 19, 2026). Zero new commits. PR #410 (SPI1 switching) still open, no reviewers assigned. FlashMemory.cpp SHA `b4781b70` unchanged — zero mutex calls. No FCS/flash/camera fix. | LOW |
+| Web-wide error string sweep (2026-05-25, all three background agents) | **Zero indexed results — 49 consecutive cycles.** `"FCS KM_status 0x00002081"`, `"It don't do the sensor initial process"`, `"FCS_I2C_INIT_ERR"`, `"FCS_RUN_DATA_NG_KM"`, `"VOE_OPEN_CMD fail flash"`, `"USE_ISP_RETENTION_DATA"`, `"device_mutex_lock RT_DEV_LOCK_FLASH FlashMemory"` — all return zero publicly indexed results in any language. This research log remains the only public documentation of this bug and its error codes. | LOW |
+| All Chinese-language sources (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/bbs.ai-thinker.com/Bilibili/Gitee/mcublog.cn) | **Zero new content — 49th consecutive null cycle.** Zhihu articles about BW21-CBV (fall detection camera, HomeAssistant integration) both 403-blocked; no FCS/flash/camera failure content in snippets. bbs.aithinker.com BW21 threads (tid≤47223) all 403-blocked. mcublog.cn BW21-CBV article (Apr 2026, Feishu bot LED+photo) 403-blocked. No new Chinese-language content discussing FCS flash-write camera failure. | LOW |
+| Hardware test confirmation search — all three workarounds (2026-05-25) | **Zero results — 49 consecutive null cycles.** "Camera FCS Mode = Disable" + flash workaround, `device_mutex_lock` + AMB82 + camera, `USE_ISP_RETENTION_DATA` + tested — all return zero results. No community member has publicly reported testing any workaround as of 2026-05-25. | LOW |
+
+**Forum thread #4302 significance — closest community symptom match:**
+
+Thread #4302 ("sensor didn't initialize done") is the closest publicly documented symptom to our failure mode found in any research cycle. Key parallels:
+- Symptom: camera sensor fails to initialize on AMB82-MINI (multiple boards)
+- Context: FCS Mode settings visible in thread (implies user was experimenting with FCS Mode = Disable toggle)
+- Error pattern: `[VOE]frame_end: sensor didn't initialize done!` — consistent with FCS_I2C_INIT_ERR failure class where the KM co-processor sensor I2C init fails
+- Limitation: Full thread content is 403-blocked; no confirmation that a flash write operation preceded the failure in this thread
+
+If the full thread content reveals a flash write trigger (e.g., FlashMemory.write before reboot), this would be the first publicly documented community report matching the exact causal chain. **Priority: LOW-MEDIUM pending content verification.**
+
+**ameba-arduino-pro2 Issue #251 flash map confirmation:**
+
+The boot log in Issue #251 provides the most detailed publicly accessible flash partition layout observed at runtime:
+- VOE binary (`voe.bin` KM firmware): loads from NOR flash `0x807e080`, size 512 KB (`0x7ff80`)
+- FW_ISP_IQ (ISP image quality firmware): loads from `0x8061080`, size ~116 KB (`0x1cf80`)
+- ISP_IQ (runtime ISP parameters): placed at `0x8461080`, size ~109 KB (`0x1af80`)
+
+This is consistent with the partition table analysis from prior cycles. The FCS data sector (`NOR_FLASH_FCS = 0xF0D000`) sits in the user data region, separate from these firmware regions. The boot log confirms the sequence: VOE loads first (from 0x807e080) → ISP_IQ initializes → then application code runs (where FlashMemory writes occur). If FCS data at 0xF0D000 is corrupted before boot, the KM co-processor fails before VOE fully initializes.
+
+**Cumulative freeze summary (as of Cycle U49):**
+
+| Repository | Frozen since | Days frozen |
+|---|---|---|
+| ameba-rtos-pro2 main | May 15, 2026 (`3f95070`) | **10+ days** |
+| ameba-arduino-pro2 dev | May 19, 2026 (`7db1c7d`) | **6+ days** |
+| ameba-arduino-pro2 main | Mar 2, 2026 (`93d63514`) | **84+ days** |
+| ameba-tool-rtos-pro2 | Mar 9, 2026 (`c1d70e7`) | **77+ days** |
+| ideashatch/HUB-8735 | Dec 2, 2025 | **174+ days** |
+| Ai-Thinker-Open | No RTL8735B repos exist | — |
+
+**SDK state as of 2026-05-25 (Cycle U49 — unchanged from U48):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix; FlashMemory.cpp SHA `b4781b70`, zero mutex calls
+- Latest pre-release: V4.1.1-QC-V06 (tag Mar 6, 2026; release notes through May 19, 2026) — no fix
+- ameba-rtos-pro2 main: Frozen at May 15, 2026 (`3f95070`) — 10 days; V1.0.3 tag (May 22, same code); PR #17 open
+- ameba-arduino-pro2 dev: Frozen at May 19, 2026 (`7db1c7d`) — 6 days; PR #410 open
+- ameba-arduino-pro2 main: Frozen at Mar 2, 2026 (`93d63514`) — 84 days
+- ameba-arduino-doc: Latest `64863ce` (May 24, I2C slave docs only)
+- ameba-tool-rtos-pro2: Frozen at March 9, 2026 (`c1d70e7`) — 77 days
+- ideashatch/HUB-8735: Frozen at Dec 2, 2025 — 174 days
+- Ai-Thinker-Open: No RTL8735B/BW21 repositories (confirmed U36)
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-25 (Cycle U49).**
+
+**Top unresolved actions (unchanged from U48):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — full source-code chain confirmed across 3 files (postbuild.cpp + video_boot.c + video_api.c); dummy blob → invalid MFCS magic → KM bypass (0x0083) → camera re-init via application layer. No public hardware test result exists anywhere. Highest priority. (Proposed Cycle U7, May 14 — 11 days unresolved.) Community thread #4302 shows users experimenting with FCS Mode toggle for camera init failures — supports exploring this workaround.
+2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; 16+ RTOS SDK files use it correctly; FlashMemory.cpp confirmed sole exception in shipping V4.1.0 (SHA `b4781b70`); forward-declaration callable from Arduino (`extern "C" void device_mutex_lock(unsigned int)` / `#define RT_DEV_LOCK_FLASH 1`). Three-callback race window (U47) is the most mechanistically precise rationale for this fix.
+3. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes at source; requires uncommenting `// #define USE_ISP_RETENTION_DATA` in `video_api.h`.
