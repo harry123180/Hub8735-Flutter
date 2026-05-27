@@ -2532,3 +2532,85 @@ The workaround ("change Tools → Camera FCS Mode to Disable") is therefore rest
 2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; SD card subsystem was explicitly patched with mutex in PR #9 (Jul 2025) while NOR flash path was not; FlashMemory.cpp is the sole unguarded storage path; callable from Arduino via forward declaration.
 3. **File a GitHub Issue** — no issue has ever been filed against ameba-arduino-pro2 for this bug. Filing one with the confirmed root-cause chain (FlashMemory.cpp missing RT_DEV_LOCK_FLASH, ISP FCS race, boot ROM reads 0xFF) could prompt Realtek engineers to patch it. The fix is a one-liner per flash operation.
 4. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes at source; requires uncommenting `// #define USE_ISP_RETENTION_DATA` in `video_api.h`; file not accessible via public GitHub path.
+
+## Research Update — 2026-05-27 (Cycle U53)
+
+**Search scope:** Four parallel agents: (1) GitHub — repos activity post-May 26; commits/PRs/issues/releases since PR #410 merge; (2) English forum/web — threads above #4868, hardware test reports, parallel manifestations; (3) Chinese sources — comprehensive sweep (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Bilibili/Gitee/mcublog.cn); (4) SDK deep-dive — video_api.c FCS locking architecture, video_api.h USE_ISP_RETENTION_DATA status, VOE release history (hal_video_release_note.txt), FlashMemory.cpp commit provenance. Plus one targeted follow-up fetch of `hal_video_release_note.txt`.
+
+**Key new findings this cycle:**
+- **Complete VOE release history obtained** — `hal_video_release_note.txt` fetched directly (v0.0.0.1 Dec 2021 → v1.7.1.0 Apr 2026; 40+ version entries). ZERO entries relate to FlashMemory, NOR flash mutex, flash bus contention, or cold boot camera failure after user flash writes. Several FCS-related fixes exist but for entirely different root causes.
+- **CORRECTION — video_api.c locking architecture**: `video_api.c` itself has zero direct calls to `device_mutex_lock` / `device_mutex_unlock` / `RT_DEV_LOCK_FLASH`. The locking that protects FCS reads/writes occurs at the lower ftl layer (`ftl_common_read/write` → `ftl_nor_api.c` → `nor_read/write/erase_cb` → `device_mutex_lock` at NOR layer). FlashMemory bypasses this by calling `flash_erase_sector` / `flash_stream_write` directly — one full layer below where the lock exists. This is architecturally consistent with the three-callback race window (U47).
+- **"FCS Mode = Disable" workaround confirmed COMPLETE**: `video_pre_init_save_cur_params()` still writes AE/AWB data to `NOR_FLASH_FCS` (0xF0D000) even in Disable mode. However, with Disable mode, KM reads the 0x8000 static FCS partition header → finds dummy invalid header → enters `FCS_BYPASS_WHILE1_KM (0x0083)` → never reads 0xF0D000 runtime data. The race/corruption at 0xF0D000 still occurs but is inconsequential in Disable mode.
+- **Forum thread #4832** found: "sys_reset is not consistent, why?" (~April 21, 2026) — camera + OTA combination causing stuck boot after `sys_reset()` — possible parallel manifestation of SPIC bus state not being properly cleaned up on soft reset. Content 403-blocked.
+- Zero new Chinese-language content (53rd consecutive null cycle); all repos frozen.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| `hal_video_release_note.txt` — fetched from `ameba-rtos-pro2` main branch (v0.0.0.1 Dec 2021 → v1.7.1.0 Apr 2026) | **Complete VOE release history — ZERO FCS flash-race fix entries in 40+ versions.** Entire history reviewed. FCS-related entries found: `v1.2.7.2 (Jun 29, 2022)` "fixed OSD on fcs fail issue" (OSD display rendering when FCS mode is in fail state — unrelated to NOR flash corruption); `v1.4.7.0 (Sep 22, 2023)` "Fix HDR sensor FCS fail issue" (HDR sensor I2C init failing during FCS — sensor-specific, different root cause from flash race); `v1.5.1.0 (Jan 26, 2024)` "Support FCS RGB stream drop frame" (feature addition — frame-dropping during FCS fast-start); `v1.4.4.0 (Jun 26, 2023)` "add semephore protection during stream close" (stream close lifecycle, not flash bus); `v1.4.5.2 (Aug 4, 2023)` "move hal_voe_sema from open(out_cb)/close to init/deinit" (semaphore lifecycle improvement); `v1.3.7.0 (Dec 16, 2022)` "Add semaphore process when voe cmd timeout cases" (VOE IPC timeout protection). **No entry anywhere in 40+ releases mentions: FlashMemory, NOR flash mutex, flash bus contention, RT_DEV_LOCK_FLASH, cold boot camera failure after user flash writes, or any fix for the `KM_status 0x2081 err 0x200A` failure pattern.** Bug has existed since at least v1.2.0.0 (Feb 2022) when FCS was first fully functional and has never been addressed in the VOE layer. | MEDIUM |
+| `video_api.c` locking architecture (fetched from `ameba-rtos-pro2` main, May 27, 2026) | **CORRECTION: video_api.c has ZERO direct calls to device_mutex_lock.** The FCS read (`ftl_common_read`) and write (`ftl_common_write`) calls in `video_api.c` are not directly protected by any mutex within `video_api.c`. The locking happens one layer below: `ftl_common_read/write` → `ftl_nor_api.c` → `nor_read_cb`/`nor_erase_cb`/`nor_write_cb` → each callback individually calls `device_mutex_lock(RT_DEV_LOCK_FLASH)` and `device_mutex_unlock`. The prior research statement "FCS data read correctly locked via ftl_common_read → NOR callbacks" was accurate about the mechanism but the framing was potentially misleading. **The three-callback race window (U47) remains valid**: FlashMemory calls `flash_erase_sector`/`flash_stream_write` at the HAL level — one full layer below `ftl_common_*` — which bypasses `RT_DEV_LOCK_FLASH` entirely. The race is not between video_api.c and FlashMemory.cpp directly; it's between the ftl_nor_api callbacks (which individually lock then unlock for each phase: read → erase → write) and FlashMemory's unguarded HAL calls that can interleave between those individual lock/unlock cycles. | MEDIUM |
+| `video_api.c` / `video_pre_init_save_cur_params()` FCS Mode gate analysis | **"FCS Mode = Disable" workaround confirmed COMPLETE despite unconditional 0xF0D000 write.** `video_pre_init_save_cur_params()` writes current AE/AWB parameters to `NOR_FLASH_FCS (0xF0D000)` unconditionally — it is NOT gated by the FCS Mode Enable/Disable setting. However, this does not invalidate the workaround: (1) With FCS Mode = Disable, `postbuild` writes `fcs_data_dummy.bin` (invalid `ISP_MULTI_FCS_DATA_MAGIC_NUM`) to the static FCS partition at 0x8000. (2) At cold boot, KM co-processor reads 0x8000 header, finds invalid magic number → immediately enters `FCS_BYPASS_WHILE1_KM (0x0083)`. (3) KM **never reads 0xF0D000** — it bypasses the entire FCS I2C initialization sequence. (4) Camera initializes via application layer (`video_init_peri()` / `NONE_FCS_MODE`). The race condition and potential corruption at 0xF0D000 still occur, but the corrupted data is never accessed at boot. Workaround prevents the boot failure by making the corrupted data unreachable, not by preventing the corruption. | MEDIUM |
+| Forum thread #4832 — "sys_reset is not consistent, why?" (~April 21, 2026; forum.amebaiot.com, 403-blocked; reconstructed from Google snippet) | **Potential parallel manifestation: camera + OTA write → stuck boot after sys_reset().** Google snippet describes: after an OTA flash write operation, calling `sys_reset()` causes the board to be stuck in boot — camera never re-opens; sometimes hangs; `sys_reset()` behavior is inconsistent. This is distinct from the cold-boot FCS race (which requires a full power cycle), but the trigger (large flash write → reset) and symptom (camera fail on next boot) share the same class. Root cause may be: NOR flash WIP bit active during soft reset → SPIC peripheral state not fully re-initialized by `sys_reset()` (which bypasses Boot ROM flash init sequence). Content 403-blocked; exact error messages unknown. Thread number above U52's ceiling of #4834, confirming forum has new content above #4834. | LOW |
+| `video_api.h` — `USE_ISP_RETENTION_DATA` (confirmed in both `ameba-rtos-pro2` main and `ameba-arduino-pro2` dev, May 27, 2026) | **`USE_ISP_RETENTION_DATA` confirmed commented out in both repos: `` // #define USE_ISP_RETENTION_DATA `` at line ~97 (rtos-pro2) / ~129 (arduino-pro2).** The `SAVE_TO_RETENTION` paths in `video_pre_init_load_params` and `video_pre_init_save_cur_params` are dead code. Uncommenting this define eliminates ISP flash writes entirely (AE/AWB saved to SRAM retention instead of NOR flash), removing the ISP side of the race condition. Status unchanged from U22. | LOW |
+| FlashMemory.cpp provenance (from English web search, May 27, 2026) | **FlashMemory.cpp last modified commit: short SHA `4fdfbec`, September 30, 2025.** This is the commit (7-char short form) that last touched FlashMemory.cpp, distinct from the git blob SHA `b4781b70b4603949a41751999a7ff2af6ddc75b0` documented in U37. Both refer to the same content state. Zero mutex guards confirmed via fresh fetch. File unchanged since Sept 30, 2025 (8 months). | LOW |
+| ameba-rtos-pro2 / ameba-arduino-pro2 — all repos (fetched May 27, 2026) | **All repos frozen. ameba-rtos-pro2: Still at `3f95070` (May 15, 2026) — now 12 days frozen. ameba-arduino-pro2 dev: Still at `29d47e1` (May 26, 2026, PR #410) — 1 day since PR #410. No new commits, releases, or issues. PR #17 (ethernet USB buffer overflow) still the only open PR in ameba-rtos-pro2. No V4.1.1-QC-V07 tag.** | LOW |
+| All Chinese-language sources (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/Bilibili/Gitee/mcublog.cn, May 27, 2026) | **Zero new content — 53rd consecutive null cycle.** mcublog.cn has its first-ever BW21-CBV article (April 2026, Feishu bot + LED + camera photo integration) — 403-blocked, title/snippet confirms unrelated to flash-camera bug. Two Zhihu articles about BW21-CBV (fall detection 2025; HomeAssistant integration 2026) — both 403-blocked, unrelated topics. All Chinese community forums remain 403-blocked. Zero Chinese-language content discusses the FCS flash-write cold-boot camera failure. | LOW |
+| Error string / hardware test web sweep (May 27, 2026) | **Zero indexed results — 53 consecutive null cycles.** All canonical error strings unindexed. No hardware test result for any of the three workarounds posted anywhere in any language. Highest-indexed forum thread remains #4868; thread #4832 (sys_reset inconsistency) is new but content is 403-blocked. | LOW |
+
+**VOE release history — complete FCS timeline (from hal_video_release_note.txt):**
+
+| VOE Version | Date | FCS-Related Change |
+|---|---|---|
+| 1.7.1.0 | Apr 21, 2026 | Fix dual sensor id FCS mirror/flip issue (sensor initialization ordering) |
+| 1.5.6.0 | Jul 17, 2024 | Reinit GPIO in FCS mode (GPIO re-initialization during FCS fast-start) |
+| 1.5.1.0 | Jan 26, 2024 | Support FCS RGB stream drop frame (frame-drop feature during FCS) |
+| 1.5.0.0 | Dec 29, 2023 | FCS NV12+RGB (new FCS stream format support) |
+| 1.4.7.0 | Sep 22, 2023 | **Fix HDR sensor FCS fail issue** (HDR sensor I2C init race — sensor-specific, NOT flash race) |
+| 1.4.3.1 | Jun 15, 2023 | Add terminating FCS flow weak func and example code |
+| 1.4.2.0 | Mar 31, 2023 | Update API for private mask feature in FCS flow |
+| 1.3.7.2 | Jan 6, 2023 | Remove GPIO E4 pinmux_unregister (b-cut FCS pin mapping issue workaround) |
+| 1.3.0.0 | Jul 14, 2022 | Add fcs_id valid check during fw/iq/sensor load |
+| **1.2.7.2** | **Jun 29, 2022** | **"fixed OSD on fcs fail issue"** (OSD display when FCS fails — NOT flash race) |
+| 1.2.5.0 | May 1, 2022 | Add sc2336 fcs_data |
+| 1.2.4.0 | Apr 20, 2022 | Add peri_info from fcs_data |
+| 1.2.0.0 | Feb 25, 2022 | Added `hal_video_fcs_ch(cnt)` API for sync bootloader FCS channel counter |
+| 1.0.0.0 | Dec 9, 2021 | Add GC2053 fcs_data; modify NN section for FCS video |
+
+**ZERO entries in entire VOE history mention:** FlashMemory, NOR flash mutex, flash bus arbitration, RT_DEV_LOCK_FLASH, cold boot camera failure after user flash writes, or any fix for `KM_status 0x2081 err 0x200A`. This confirms the bug has never been addressed at the VOE layer.
+
+**Locking architecture clarification (updates to U47 three-callback race window):**
+
+```
+FlashMemory.write() / FlashMemory.erase()
+  └─ flash_erase_sector(flash_t*, addr)        [mbed API layer]
+       └─ hal_flash_sector_erase()              [C HAL wrapper]
+            └─ NS stubs → spic_ns_tx_cmd()     [NS hardware layer]
+                                               ← NO RT_DEV_LOCK_FLASH anywhere above this
+
+ftl_common_write(addr, buf, size)              [FTL common layer]
+  └─ ftl_write_nor(addr, buf, size)            [FTL NOR layer]
+       ├─ nor_read_cb()  → device_mutex_lock(RT_DEV_LOCK_FLASH) → [read]  → unlock
+       ├─ nor_erase_cb() → device_mutex_lock(RT_DEV_LOCK_FLASH) → [erase] → unlock
+       └─ nor_write_cb() → device_mutex_lock(RT_DEV_LOCK_FLASH) → [write] → unlock
+            ↑ FlashMemory can inject SPIC commands between any two of these
+```
+
+The race window exists because: (1) each FTL callback locks→operates→unlocks individually, with no outer lock spanning all three; (2) FlashMemory operates at the HAL level, bypassing the FTL/NOR callback layer entirely and thus never seeing or respecting `RT_DEV_LOCK_FLASH`. This architecture is confirmed by direct source code inspection across both repos.
+
+**SDK state as of 2026-05-27 (Cycle U53):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix; FlashMemory.cpp blob SHA `b4781b70`, zero mutex calls
+- Latest pre-release: V4.1.1-QC-V06 (tag Mar 6, 2026; build20260519 binary May 19) — no fix
+- ameba-rtos-pro2 main: Frozen at `3f95070` (May 15, 2026) — **12 days** no change
+- ameba-arduino-pro2 dev: `29d47e1` (May 26, 2026, PR #410 SPI merge — no fix)
+- ameba-arduino-pro2 main: Frozen at Mar 2, 2026 (`93d63514`) — **86 days** no change
+- ameba-tool-rtos-pro2: Frozen at March 9, 2026 (`c1d70e7`) — **79 days** no change
+- ideashatch/HUB-8735: Frozen at Dec 2, 2025 — **176 days** no change
+- Ai-Thinker-Open: No RTL8735B/BW21 repositories (confirmed U36)
+- VOE binary: v1.7.1.0 (Apr 21, 2026) — latest; no FCS flash-race fix in entire release history
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-27 (Cycle U53).**
+
+**Top unresolved actions (updated from U52):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — FCS bypass via dummy blob confirmed effective: KM reads invalid 0x8000 header → `FCS_BYPASS_WHILE1_KM` → never reads 0xF0D000 runtime data; camera inits via application layer. FCS Disable is the Arduino IDE default. No public hardware test result exists.
+2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Architecturally correct fix: wrapping all FlashMemory HAL calls with `device_mutex_lock(1)` / `device_mutex_unlock(1)` would serialize FlashMemory against the FTL NOR callbacks. Callable from Arduino via `extern "C" void device_mutex_lock(unsigned int); #define RT_DEV_LOCK_FLASH 1`. VOE release history confirms Realtek has never applied this fix. No public hardware test result exists.
+3. **File a GitHub Issue** — no issue has ever been filed against ameba-arduino-pro2 for this bug; VOE release history (40+ versions) contains no acknowledgment; bug is fully undocumented outside this research log. Filing with the confirmed root-cause chain would be the first public disclosure.
+4. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes at source; `// #define USE_ISP_RETENTION_DATA` in `video_api.h` (both repos, confirmed May 27). No public hardware test result exists.
