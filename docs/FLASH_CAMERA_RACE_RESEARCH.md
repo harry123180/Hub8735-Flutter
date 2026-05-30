@@ -3161,3 +3161,51 @@ void FlashMemoryClass::eraseSector(unsigned int sector_offset) {
 2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; 16+ RTOS SDK files use it correctly; FlashMemory.cpp confirmed sole exception in all SDK versions through V4.1.1-QC-V06 (SHA `b4781b70`, 3 commits, newest Sep 30, 2025). Callable from Arduino via `extern "C" { void device_mutex_lock(unsigned int); void device_mutex_unlock(unsigned int); } #define RT_DEV_LOCK_FLASH 1`.
 3. **File a GitHub Issue on ameba-arduino-pro2** — bug is fully undocumented outside this research log; 63 research cycles and 46 VOE versions contain zero acknowledgment; filing with the confirmed root-cause chain (FlashMemory bypasses `RT_DEV_LOCK_FLASH`, three-callback FTL race window, cold-boot KM I2C init corruption) would be the first public disclosure.
 4. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes at source; requires uncommenting `// #define USE_ISP_RETENTION_DATA` in `video_api.h` (both repos).
+
+## Research Update — 2026-05-30 (Cycle U64)
+
+**Search scope:** Direct GitHub fetches (ameba-rtos-pro2 commits/main; ameba-arduino-pro2 dev/main commits, releases, issues, PRs); English forum/web (new threads above #4871, FCS Disable / `device_mutex_lock` / `USE_ISP_RETENTION_DATA` hardware test reports); Chinese sources (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/bbs.ai-thinker.com/Bilibili/Gitee); error string sweeps.
+
+**Key new findings this cycle:** None — 64th consecutive null research cycle. All repositories, forum threads, error-string sweeps, and community searches are unchanged from Cycle U63.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| ameba-rtos-pro2 commits page (2026-05-30) | **Confirmed frozen at `3f95070` (May 15, 2026) — 15 days no change.** PR #17 (ethernet USB buffer overflow security fix, orbisai0security) remains open and stale-flagged (bot May 29, 2026). Zero new commits. No flash, FCS, VOE, boot, HAL, or sensor changes in any observable pipeline. | LOW |
+| ameba-arduino-pro2 dev branch (2026-05-30) | **Confirmed frozen at `29d47e1` (May 26, 2026, PR #410 SPI API) — 4 days no change.** Zero new commits after May 26. No PRs above #410 in any state. No FCS/flash/camera/mutex-related PRs. | LOW |
+| ameba-arduino-pro2 releases (2026-05-30) | **No new releases.** Latest stable = V4.1.0 (Mar 2, 2026). Latest pre-release = V4.1.1-QC-V06 (tag Mar 6, 2026; build20260519 binary May 19, 2026). V4.1.1-QC-V07 confirmed absent (HTTP 404 per U63). No FlashMemory/FCS/camera boot fix in any release note. | LOW |
+| ameba-arduino-pro2 open issues (2026-05-30) | **12 open issues; newest = #398 (Mar 29, 2026).** No new issues above #398. No issues about FlashMemory, FCS, camera, VOE, or boot failure in open or closed history. Bug entirely unreported on the official tracker after 64 research cycles (19 days since top-4 action list compiled on May 14). | LOW |
+| forum.amebaiot.com threads above #4871 (2026-05-30) | **No new threads indexed above #4871.** Forum ceiling confirmed at #4871 ("I would like to purchase a small quantity of RTL8735b," purchasing inquiry). Targeted searches for IDs #4872–#5000 returned zero results from the forum domain. All direct forum fetches return HTTP 403. | LOW |
+| Web-wide error string sweep (2026-05-30) | **Zero indexed results — 64 consecutive cycles.** `"FCS KM_status 0x00002081"`, `"It don't do the sensor initial process"`, `"FCS_I2C_INIT_ERR"`, `"FCS_RUN_DATA_NG_KM"`, `"VOE_OPEN_CMD fail flash"`, `"USE_ISP_RETENTION_DATA"`, `"device_mutex_lock RT_DEV_LOCK_FLASH FlashMemory"` — all return zero publicly indexed results anywhere on the accessible web. This research log remains the only publicly accessible documentation of this bug and its error codes. | LOW |
+| Hardware test results — all four workarounds (2026-05-30 sweep) | **Zero results — 64 consecutive null cycles.** No community member has publicly reported testing "Camera FCS Mode = Disable," `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper, `USE_ISP_RETENTION_DATA`, or camera-stop-before-erase as workarounds for the flash-write cold-boot camera failure. **19 days elapsed since the top-4 action list was compiled (May 14, U7) with zero public validation.** | LOW |
+| All Chinese-language sources (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/bbs.ai-thinker.com/Bilibili/Gitee, 2026-05-30) | **Zero new RTL8735B/BW21-CBV-specific content — 64th consecutive null cycle.** All Chinese community sites remain 403-blocked or return zero relevant results for FCS flash-write camera failure on RTL8735B or BW21-CBV. | LOW |
+
+**Cumulative freeze summary (as of Cycle U64):**
+
+| Repository | Frozen since | Days frozen |
+|---|---|---|
+| ameba-rtos-pro2 main | May 15, 2026 (`3f95070`) | **15 days** |
+| ameba-arduino-pro2 dev | May 26, 2026 (`29d47e1`) | **4 days** |
+| ameba-arduino-pro2 main | Mar 2, 2026 (`93d63514`) | **89 days** |
+| ameba-tool-rtos-pro2 | Mar 9, 2026 (`c1d70e7`) | **82 days** |
+| ideashatch/HUB-8735 | Dec 2, 2025 | **179 days** |
+| Ai-Thinker-Open | No RTL8735B repos exist | — |
+
+**SDK state as of 2026-05-30 (Cycle U64 — unchanged from U63):**
+- Latest stable: V4.1.0 (Mar 2, 2026) — no fix; FlashMemory.cpp SHA `b4781b70`, zero mutex calls
+- Latest pre-release: V4.1.1-QC-V06 (tag Mar 6, 2026; build20260519 binary May 19, 2026) — no fix; QC-V07 confirmed absent (HTTP 404)
+- ameba-rtos-pro2 main: Frozen at `3f95070` (May 15, 2026) — **15 days** no change; PR #17 stale-flagged (bot May 29) but still open and unmerged
+- ameba-arduino-pro2 dev: `29d47e1` (May 26, 2026, PR #410 SPI API — no fix); no new PRs (max is #410)
+- ameba-arduino-pro2 main: Frozen at Mar 2, 2026 (`93d63514`) — **89 days** no change
+- ameba-tool-rtos-pro2: Frozen at March 9, 2026 (`c1d70e7`) — **82 days** no change
+- ideashatch/HUB-8735: Frozen at Dec 2, 2025 — **179 days** no change
+- Ai-Thinker-Open: No RTL8735B/BW21 repositories (confirmed U36)
+- VOE binary: v1.7.1.0 (Apr 21, 2026) — latest; no FCS flash-race fix in entire 46-version release history (confirmed U53)
+- Forum ceiling: **#4871** (purchasing inquiry thread; no technical content; established U61)
+
+**No confirmed fix. Bug remains unpatched as of 2026-05-30 (Cycle U64).**
+
+**Top unresolved actions (unchanged from U63 — 19 days unresolved since U7, May 14):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — full source-code chain confirmed across 3 files (postbuild.cpp + video_boot.c + video_api.c); dummy blob → invalid MFCS magic → KM bypass (0x0083) → camera re-init via application layer. FCS Disable is the Arduino IDE default (boards.txt). No public hardware test result exists anywhere. **Highest priority.**
+2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; 16+ RTOS SDK files use it correctly; FlashMemory.cpp confirmed sole exception in all SDK versions through V4.1.1-QC-V06 (SHA `b4781b70`, 3 commits, newest Sep 30, 2025). Callable from Arduino via `extern "C" { void device_mutex_lock(unsigned int); void device_mutex_unlock(unsigned int); } #define RT_DEV_LOCK_FLASH 1`.
+3. **File a GitHub Issue on ameba-arduino-pro2** — bug is fully undocumented outside this research log; 64 research cycles and 46 VOE versions contain zero acknowledgment; filing with the confirmed root-cause chain (FlashMemory bypasses `RT_DEV_LOCK_FLASH`, three-callback FTL race window, cold-boot KM I2C init corruption) would be the first public disclosure.
+4. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes at source; requires uncommenting `// #define USE_ISP_RETENTION_DATA` in `video_api.h` (both repos, confirmed May 27).
