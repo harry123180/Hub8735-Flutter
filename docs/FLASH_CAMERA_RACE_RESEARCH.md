@@ -3907,3 +3907,65 @@ Neither thread has an indexed resolution. Both corroborate that the RTL8735B fla
 2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; 16+ RTOS SDK files use it correctly; FlashMemory.cpp confirmed sole exception. Callable from Arduino: `extern "C" { void device_mutex_lock(unsigned int); void device_mutex_unlock(unsigned int); } #define RT_DEV_LOCK_FLASH 1`.
 3. **File a GitHub Issue on ameba-arduino-pro2** — bug entirely undocumented outside this research log; 78 cycles and 46 VOE versions contain zero acknowledgment; zero PRs ever filed in this repo; filing would be the first public disclosure.
 4. **Hardware test of `USE_ISP_RETENTION_DATA`** — ISP documentation (this cycle) confirms purpose: AE/AWB SRAM retention for standby/wake, not FCS initialization. Eliminates ISP SPIC writes regardless; still worth testing to determine if removing ISP's write-back closes the race window. Requires uncommenting `// #define USE_ISP_RETENTION_DATA` in `video_api.h`.
+
+---
+
+## Research Update — 2026-06-04 (Cycle U79)
+
+**Search scope:** Six parallel agents: (1) GitHub — ameba-rtos-pro2 and ameba-arduino-pro2 commits/releases/issues since June 3; FlashMemory.cpp raw-URL verification; ideashatch/HUB-8735 status; (2) English forum/web — new threads above #4871; FCS Disable / mutex / USE_ISP_RETENTION_DATA hardware test reports; (3) Chinese sources — CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/bbs.ai-thinker.com/Bilibili/Gitee; (4) Error string indexing — all five key error strings; FlashMemory mutex PR search; (5) VOE version sweep — hal_video_release_note.txt in QC-V07; full V4.1.1-QC-V07 release notes; (6) Reddit/Hackster/SO/Arduino.cc community search.
+
+**Key new findings this cycle:**
+- Both Ameba repositories fully confirmed frozen as of June 4, 2026: ameba-rtos-pro2 at `3f95070` (May 15, 20+ days); ameba-arduino-pro2 dev at `e8dd7e3` (June 3, 1 day)
+- **V4.1.1-QC-V07 release notes new detail**: "Add SWD pin deinit check for I2C" listed as an API improvement — new detail not captured in U78; tangentially relevant (SWD/I2C pin conflict is a documented separate hardware class on BW21-CBV), but NOT the FCS I2C init failure triggered by FlashMemory writes
+- **GC4663 sensor gains FCS data support** in V4.1.1-QC-V07 (new sensor FCS IQ data added) — normal sensor addition, no FCS flash-race fix
+- **FlashMemory.cpp directly verified unpatched** via raw GitHub URL (`https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/...FlashMemory.cpp`) — SHA b4781b70 confirmed in dev HEAD; zero `device_mutex_lock`, `RT_DEV_LOCK_FLASH`, or `device_lock.h` calls
+- **"CH 0 MMF ENC Queue full" reports** with SDK build ~4.1.20251219 (December 2025 dev build) surfaced from community search — queue-full symptom variant distinct from FlashMemory-triggered cause; adds to the MMF queue-full error catalog
+- All error strings remain unindexed for the 79th consecutive null cycle; no forum threads above #4871; no hardware test results for any workaround
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| ameba-rtos-pro2 commits (direct GitHub fetch, 2026-06-04) | **Confirmed frozen — 20+ days.** HEAD = `3f95070` (May 15, 2026). Zero new commits since May 15. GitHub filtered endpoint `since=2026-06-01` returns: "There isn't any commit history to show here for the selected date range." No flash, FCS, VOE, boot, HAL, or sensor changes in any observable pipeline. | LOW |
+| ameba-arduino-pro2 dev branch (direct GitHub fetch, 2026-06-04) | **Confirmed frozen since June 3.** 10 most recent commits verified: `e8dd7e3` "Pre Release Version 4.1.1" (June 3), `96cfc51` "Update Code base and add cam OV5647, GC4663 (#411)" (June 3), `29d47e1` "Update SPI API for SPI1 switching (#410)" (May 26), `7db1c7d` (May 19), `3d53672` (May 19). Zero new commits on June 4, 2026. No FlashMemory, FCS, or boot-related changes. | LOW |
+| ameba-arduino-pro2 releases (direct GitHub fetch, 2026-06-04) | **No new releases beyond V4.1.1-QC-V07.** Latest stable = V4.1.0 (Mar 2, 2026). Latest pre-release = V4.1.1-QC-V07 (tag June 3, 2026; build20260603). No V4.1.1-QC-V08 or stable V4.1.1 published. | LOW |
+| V4.1.1-QC-V07 release notes — "Add SWD pin deinit check for I2C" (2026-06-04) | **New release note detail not captured in U78.** V4.1.1-QC-V07 release notes include the API improvement: "Add SWD pin deinit check for I2C." SWD debug pins can conflict with I2C SCL/SDA if not properly deinitialized before I2C is started — a known hardware issue on BW21-CBV-Kit (documented in bbs.aithinker.com tid=46140 from prior cycles). This fix ensures SWD pins are released before camera I2C initialization. **However:** our `FCS_I2C_INIT_ERR (0x200A)` is triggered specifically by FlashMemory writes corrupting FCS data at 0xF0D000 via the RT_DEV_LOCK_FLASH mutex bypass — the SWD/I2C conflict is a distinct hardware failure class requiring deliberate misuse of SWD pins for I2C. Not a fix for our bug. | LOW |
+| V4.1.1-QC-V07 — GC4663 FCS data support (2026-06-04) | **GC4663 sensor gains FCS IQ data in QC-V07 commit `96cfc51`.** The 107-file commit adds new sensor FCS data blobs and IQ JSON files for both OV5647 and GC4663. This is routine sensor bringup — adds FCS boot data for the new sensors. No change to the FCS cold-boot failure mechanism or the FlashMemory mutex bypass. VOE binary version remains 1.7.1.0 (April 21, 2026) — hal_video_release_note.txt shows no new entry in QC-V07. | LOW |
+| `FlashMemory.cpp` — raw GitHub URL verification (2026-06-04) | **Directly verified unpatched in dev HEAD.** Direct fetch of `https://raw.githubusercontent.com/Ameba-AIoT/ameba-arduino-pro2/dev/Arduino_package/hardware/libraries/FlashMemory/src/FlashMemory.cpp` confirms: SHA b4781b70, all 10 public functions contain **zero** calls to `device_mutex_lock`, `device_mutex_unlock`, `RT_DEV_LOCK_FLASH`, or `#include "device_lock.h"`. This is the 3rd direct raw-URL verification across research cycles (prior: U31 lines 59/71/76/88/106/107/121/135-140; U37 SHA b4781b70). The mutex bypass is confirmed unchanged in V4.1.1-QC-V07. | LOW (confirms prior) |
+| ameba-arduino-pro2 open issues (direct GitHub fetch, 2026-06-04) | **12 open issues; newest = #398 (Mar 29, 2026).** Full issue list unchanged from U78. No new issues filed above #398. No issues about FlashMemory mutex, FCS boot failure, camera cold-boot, or sensor initialization. Bug entirely unreported on the official tracker after 79 research cycles. | LOW |
+| ideashatch/HUB-8735 repository (2026-06-04) | **Unchanged — last commit `870a7e0` (December 2, 2025), 184+ days frozen.** One open issue: #10 (PS5268 sensor ID fail, Aug 2025). No new commits or issues. | LOW |
+| "CH 0 MMF ENC Queue full" — SDK build 4.1.20251219 (community search, 2026-06-04) | **New queue-full variant identified from community search.** User reports of SDK build dated approximately December 2025 (build 4.1.20251219) breaking previously working code with "CH 0 MMF ENC Queue full" and video corruption errors. "CH 0 MMF ENC Queue full" is a channel-0 multimedia framework encoder queue overflow — a different label from "[VOE][WARN]slot full" but the same symptom class (MMF queue consumed, camera pipeline stalled). The trigger (SDK update, not FlashMemory write) is different from our bug. Not directly related to the FCS flash-write cold-boot failure, but adds to the MMF queue-full error catalog. Source from general community search; thread URL not definitively identified. | LOW |
+| All forum threads above #4871 (search sweep, 2026-06-04, three agents) | **No new threads indexed above #4871.** Targeted searches for IDs 4872–4900 returned zero results from forum.amebaiot.com domain. Forum ceiling confirmed at #4871 for the 2nd consecutive cycle. All prior-documented threads (#4302, #4834, #4541, #4651, #4748, #4865, #4868) remain accessible only via search engine snippets; direct fetches return HTTP 403. | LOW |
+| Web-wide error string sweep (all search engines, 2026-06-04, two agents) | **Zero indexed results — 79th consecutive null cycle.** `"FCS KM_status 0x00002081"`, `"It don't do the sensor initial process"`, `"FCS_I2C_INIT_ERR"`, `"FCS_RUN_DATA_NG_KM"`, `"VOE_OPEN_CMD command fail"`, `"USE_ISP_RETENTION_DATA FlashMemory"`, `"device_mutex_lock RT_DEV_LOCK_FLASH FlashMemory"` — all return zero publicly indexed results anywhere in any language. This research log remains the only public documentation of this bug and its error codes. | LOW |
+| Reddit / Hackster.io / Stack Overflow / Arduino.cc (2026-06-04) | **Zero relevant posts.** No new AMB82-Mini / RTL8735B camera+flash cold-boot bug reports on any community platform. Reddit, Hackster, Stack Overflow, and Arduino.cc searches return only general camera documentation and unrelated projects. No hardware test confirmation for any of the three proposed workarounds. | LOW |
+| Chinese-language sources (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/bbs.ai-thinker.com/Bilibili/Gitee, 2026-06-04) | **Zero new content — 79th consecutive null cycle.** Chinese sources: bbs.aithinker.com returns search-indexed threads (BW21-CBV unboxing, environment setup, DIY camera, BLE tutorials) — same threads as prior cycles; no new technical content accessible. Zhihu BW21-CBV articles (fall detection, HomeAssistant) confirmed from prior cycles. No new Chinese-language forum posts or articles discuss FCS flash-write camera failure on RTL8735B or BW21-CBV. | LOW |
+
+**Repository freeze status (as of Cycle U79, June 4, 2026):**
+
+| Repository | Last commit | Days frozen |
+|---|---|---|
+| ameba-rtos-pro2 main | May 15, 2026 (`3f95070`) | **20+ days** |
+| ameba-arduino-pro2 dev | June 3, 2026 (`e8dd7e3`) | **1 day** |
+| ameba-arduino-pro2 main | Mar 2, 2026 (`93d63514`) | **94+ days** |
+| ideashatch/HUB-8735 | Dec 2, 2025 (`870a7e0`) | **184+ days** |
+
+**MMF queue-full error catalog (updated):**
+
+| Error string | Trigger | SDK version | Source |
+|---|---|---|---|
+| `[VOE][WARN]slot full` | 70× FlashMemory.writeWord (280 bytes) | V4.1.0 | Our bug — mild case |
+| `CH 0 MMF ENC Queue full` | SDK update (build ~4.1.20251219) | ~Dec 2025 dev build | Community search, U79 |
+| `osd2enc receive timeout` / `isp2osd receive timeout` | Unknown (no flash trigger confirmed) | Various | Thread #2929, #3319 |
+
+**SDK state as of 2026-06-04 (Cycle U79 — unchanged from U78):**
+- Latest stable Arduino SDK: V4.1.0 (Mar 2, 2026) — no fix; FlashMemory.cpp SHA b4781b70, zero mutex calls
+- Latest pre-release Arduino SDK: V4.1.1-QC-V07 (tag June 3, 2026; build20260603) — no fix; adds OV5647, GC4663, tools v1.4.12; "SWD pin deinit check for I2C" API improvement (unrelated to FCS flash-race)
+- ameba-rtos-pro2: V1.0.3 / V1.0.3-aiglass.08 (May 22, 2026) — RTOS-level patches only; no FCS/flash fix
+- VOE binary: v1.7.1.0 (Apr 21, 2026) — no FCS flash-race fix in entire 46-version history
+- Forum ceiling: **#4871** (79th consecutive null)
+
+**No confirmed fix. Bug remains unpatched as of 2026-06-04 (Cycle U79).**
+
+**Top unresolved actions (unchanged — 21 days unresolved since U7, May 14):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — full source-code chain confirmed across 3 files (postbuild.cpp + video_boot.c + video_api.c); dummy blob → invalid MFCS magic → KM bypass (0x0083) → camera re-init via application layer. No public hardware test result exists anywhere. **Highest priority.**
+2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; 16+ RTOS SDK files use it correctly; FlashMemory.cpp confirmed sole exception (SHA b4781b70, zero mutex calls, directly verified this cycle). Callable from Arduino: `extern "C" { void device_mutex_lock(unsigned int); void device_mutex_unlock(unsigned int); } #define RT_DEV_LOCK_FLASH 1`.
+3. **File a GitHub Issue on ameba-arduino-pro2** — bug entirely undocumented outside this research log; 79 cycles and 46 VOE versions contain zero acknowledgment; zero PRs ever filed in this repo; filing would be the first public disclosure.
+4. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes; requires uncommenting `// #define USE_ISP_RETENTION_DATA` in `video_api.h`.
