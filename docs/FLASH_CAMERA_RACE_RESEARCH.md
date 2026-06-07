@@ -4595,3 +4595,55 @@ A delayed web search agent completed after U92 was committed. Three factual corr
 | Forum ceiling | #4871 (11th consecutive cycle) | **#4885** (thread #4885 indexed Jun 2, 2026; unrelated content) |
 | FlashMemory.h | Not mentioned | V4.1.0 changelog notes "FlashMemory.h updates" — header only, no mutex fix |
 | GH issue #251 | Not mentioned | Contains normal FCS boot log (`KM_status 0x00000082`); background context |
+
+---
+
+## Research Update — 2026-06-07 (Cycle U93)
+
+**Search date:** 2026-06-07  
+**Cycle type:** Null — no new findings; all source repositories frozen at previously documented states  
+**Consecutive null cycles:** 93
+
+### Repository freeze status
+
+| Repository | Latest commit | Commit date | Days frozen |
+|---|---|---|---|
+| ameba-rtos-pro2 main | `3f95070` | 2026-05-15 | **23 days** |
+| ameba-arduino-pro2 dev | `e8dd7e3` | 2026-06-03 | **4 days** |
+| ameba-arduino-pro2 main | `93d63514` | 2026-03-02 | **97 days** |
+| ameba-tool-rtos-pro2 main | `c1d70e7` | 2026-03-09 | **90 days** |
+| ideashatch/HUB-8735 main | `870a7e0` | 2025-12-02 | **187 days** |
+
+### SDK release status
+
+| Release | Tag date | FCS/flash/mutex fix? |
+|---|---|---|
+| V4.1.0 (stable) | 2026-03-02 | No |
+| V4.1.1-QC-V07 (pre-release) | 2026-06-03 (build20260603) | No |
+| VOE binary v1.7.1.0 | 2026-04-21 | No |
+
+### Search results summary
+
+All searches across English and Chinese sources returned zero new findings relevant to the FCS/flash race bug:
+
+- **Error strings searched:** `FCS_I2C_INIT_ERR`, `FCS_RUN_DATA_NG_KM`, `FCS KM_status 0x00002081`, `FCS_BYPASS_WHILE1_KM 0x0083`, `RT_DEV_LOCK_FLASH FlashMemory`, `ftl_common_write race`, `NOR_FLASH_FCS corruption` — all return zero indexed results across GitHub, forum.amebaiot.com (via Google snippets), CSDN, 知乎, EEWorld, 21IC.
+- **Forum ceiling:** #4885 (confirmed; per U92 supplement). No new threads indexed since U92 supplement. Bug-relevant content: none in any newly indexed range.
+- **FlashMemory.cpp SHA:** `b4781b70b4603949a41751999a7ff2af6ddc75b0` — confirmed unchanged through V4.1.1-QC-V07. Zero `device_mutex_lock` / `device_mutex_unlock` / `RT_DEV_LOCK_FLASH` calls. Mutex defect persists.
+- **hal_video_release_note.txt:** Returns HTTP 404 from ameba-arduino-pro2 dev branch. File may have been relocated; not yet traced.
+- **RTL8735C:** No public SDK as of 2026-06-07. Product announced ~Dec 2025 (COMPUTEX Best Choice Award); Wi-Fi 6 / BLE 5.3 / dual AI NPUs. No migration path for RTL8735B users published.
+- **Hardware test reports:** Zero public reports of any workaround (FCS Mode = Disable; `device_mutex_lock` wrapper; `USE_ISP_RETENTION_DATA`) being tested on physical hardware.
+
+### Workaround confidence status (unchanged from U92)
+
+| Workaround | Confidence | Hardware-confirmed? |
+|---|---|---|
+| FCS Mode = Disable (boards.txt default) | High — mechanistic chain fully traced | No public report |
+| `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper around FlashMemory calls | High — pattern from Realtek's own flash example | No public report |
+| `USE_ISP_RETENTION_DATA` (eliminates ISP SPIC writes) | Medium — eliminates competing writes; purpose is standby/wake retention | No public report |
+
+### Notes
+
+- The 23-day freeze on ameba-rtos-pro2 main is the longest observed since tracking began. Combined with the 97-day freeze on ameba-arduino-pro2 stable main, development activity on the RTL8735B platform appears to be winding down.
+- No indication that Realtek intends to backport a FlashMemory mutex fix. The architectural defect (user-space `FlashMemory.cpp` bypassing `RT_DEV_LOCK_FLASH`) would require either a `.cpp` patch or documented guidance; neither has appeared in any SDK version through V4.1.1-QC-V07.
+- **FlashMemory.h** was updated in V4.1.0 changelog ("FlashMemory.h updates" — header only per U92 supplement); a direct header diff against V4.0.x is deferred to a future cycle.
+- The bug (cold-boot camera failure after FlashMemory write) remains **entirely undocumented in any public source** across all 93 research cycles.
