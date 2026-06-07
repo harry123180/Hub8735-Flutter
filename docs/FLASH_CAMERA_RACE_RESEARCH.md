@@ -4577,3 +4577,21 @@ The FTL intermittent-read thread likely describes the same SPIC bus hazard docum
 2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; 16+ RTOS SDK files use it correctly; FlashMemory.cpp confirmed sole exception. Callable from Arduino: `extern "C" { void device_mutex_lock(unsigned int); void device_mutex_unlock(unsigned int); } #define RT_DEV_LOCK_FLASH 1`.
 3. **File a GitHub Issue on ameba-arduino-pro2** — bug entirely undocumented outside this research log; 92 cycles and 46 VOE versions with zero acknowledgment; zero PRs ever filed; filing would be the first public disclosure.
 4. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes entirely; requires uncommenting `// #define USE_ISP_RETENTION_DATA` in `video_api.h`.
+
+### Supplement to U92 — late-arriving web search results
+
+A delayed web search agent completed after U92 was committed. Three factual corrections and two new low-priority findings:
+
+**Correction 1 — Forum ceiling:** U92 stated "#4871 — 11th consecutive cycle." The web agent found thread **#4885** indexed by search engines as of June 2, 2026: "Request for Acuity Toolkit Access — GitHub: sacihanserdar-web" (AI category; unrelated to bug). Threads #4872–#4884 not indexed. Corrected forum ceiling: **#4885** (up from #4871). Bug-relevant content: none in the newly indexed range.
+
+**Correction 2 — GitHub issue #251:** Agent found that `ameba-arduino-pro2` issue #251 ("ControlLED abort execution") contains a boot log with `FCS KM_status 0x00000082 err 0x00000000` / `FCS TM_status 0x00000001` / `fcs OK` — the **healthy** FCS boot state. This is background context confirming the log format is publicly visible (the normal variant); the failing value `0x00002081` remains unindexed in any public source.
+
+**New finding — FlashMemory.h modified in V4.1.0:** The V4.1.0 release changelog (March 2, 2026) includes "FlashMemory.h updates" with no detail. The `.cpp` file SHA `b4781b70` is confirmed unchanged through all SDK versions; this update is to the `.h` header only. Possible content: updated API docs, new method signatures, or constant definitions. Does NOT represent a mutex fix (the mutex defect is in `.cpp`). Priority: LOW — warrants a direct header diff in a future cycle.
+
+**New finding — Forum thread #4868 "NN Model loading from Memory instead of Flash or SD card failing with exceptions":** Indexed by search engines; body 403-blocked. Title suggests model-load failures from RAM vs. flash/SD — tangentially related to the SPIC bus contention space but about AI inference, not camera FCS cold boot. Likely unrelated; tracked for completeness.
+
+| Corrected Item | Old Value (U92 as committed) | Corrected Value |
+|---|---|---|
+| Forum ceiling | #4871 (11th consecutive cycle) | **#4885** (thread #4885 indexed Jun 2, 2026; unrelated content) |
+| FlashMemory.h | Not mentioned | V4.1.0 changelog notes "FlashMemory.h updates" — header only, no mutex fix |
+| GH issue #251 | Not mentioned | Contains normal FCS boot log (`KM_status 0x00000082`); background context |
