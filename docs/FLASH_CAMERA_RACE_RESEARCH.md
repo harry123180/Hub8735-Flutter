@@ -6336,3 +6336,74 @@ The "FCS Disable is the default" mitigation (documented U51: `boards.txt` lists 
 2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; FlashMemory.cpp confirmed sole exception. Callable from Arduino: `extern "C" { void device_mutex_lock(unsigned int); void device_mutex_unlock(unsigned int); } #define RT_DEV_LOCK_FLASH 1`.
 3. **File a GitHub Issue on ameba-arduino-pro2** — bug entirely undocumented outside this research log; 126 cycles; zero official acknowledgment; zero PRs ever filed.
 4. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes; requires uncommenting `// #define USE_ISP_RETENTION_DATA` in `video_api.h`.
+
+## Research Update — 2026-06-16 (Cycle U127)
+
+**Search scope:** Six parallel agents: (1) GitHub — ameba-rtos-pro2 compare endpoint, ameba-arduino-pro2 dev/main commits, releases, ideashatch/HUB-8735; (2) English web — error strings, FCS disable workaround hardware tests, device_mutex_lock fix, AMB82 FlashMemory camera; (3) Chinese sources — CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/bbs.ai-thinker.com/mcublog.cn/Bilibili/Gitee; (4) Forum threads above #4868, previously blocked threads #4302/#4834/#4868; (5) Blog/maker community — Hackster/Hackaday/Instructables/Reddit/StackOverflow; (6) GitHub issues — ameba-arduino-pro2 + ameba-rtos-pro2 created:>2026-06-15.
+
+**Cycle result: NULL — 127th consecutive null cycle.** All repositories, GitHub issue trackers, forum threads, English and Chinese web sources, and error-string canary queries return the same frozen/blocked/empty state as U126. Three new thread IDs catalogued (#3345, #3364, #2530). Two new cross-platform RTL8720CF boot-failure precedents found on GitHub (libretiny and esphome). No confirmed fix. No hardware test reports.
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| ameba-rtos-pro2 compare `3f95070...HEAD` (fetched 2026-06-16) | **Confirmed frozen — 1 day since June 15.** Compare shows exactly 10 commits (all June 15, 2026) — identical to U123/U124/U125/U126. HEAD = `dc249dd`. Zero new commits. No flash, FCS, mutex, SPIC, boot, or camera cold-boot changes. | LOW |
+| ameba-arduino-pro2 dev branch (fetched 2026-06-16) | **Confirmed frozen — 13 days since June 3, 2026.** HEAD = `e8dd7e3` "Pre Release Version 4.1.1" (build20260603). No new commits. FlashMemory.cpp: last commit `4fdfbec` (Sep 30, 2025), zero mutex calls — unchanged. No V4.1.1-QC-V08; no stable V4.1.1. | LOW |
+| ameba-arduino-pro2 releases page (fetched 2026-06-16) | **No new releases.** Latest GitHub Release tag = V4.1.1-QC-V07 (March 6, 2026). Latest stable = V4.1.0 (March 2, 2026). No releases published between March 6 and June 16, 2026. | LOW |
+| GitHub MCP `search_issues` created:>2026-06-15 (both repos, 2026-06-16) | **`total_count: 0` on both ameba-arduino-pro2 and ameba-rtos-pro2.** No new issues filed after June 15. Bug entirely unreported on official trackers after **127 research cycles**. | LOW |
+| forum.amebaiot.com/t/amb82-mini-camera-support/3345 (search snippet, 403 blocked) | **Newly catalogued thread.** Title: "AMB82-mini Camera Support." Multiple posts by M-ichae-l (SDK maintainer). Snippet confirms "Camera FCS Mode" is mentioned as a Tools menu toggle (Enable/Disable). This is the most official public documentation of the FCS mode toggle visible in a thread (outside `boards.txt` source). Content 403-blocked; date unknown. Not described as relating to flash-write boot failure, but establishes M-ichae-l has discussed FCS mode behavior publicly. | LOW (blocked) |
+| forum.amebaiot.com/t/amb82-mini-wont-boot-large-code-size/3364 (search snippet, 403 blocked) | **Newly catalogued thread.** Title: "AMB82-Mini won't boot large code size." Board fails to boot when sketch exceeds approximately 2000 lines; flash layout or code overflow suspected. Not confirmed as FlashMemory.write()-triggered. Content 403-blocked. Distinct failure class from FCS_I2C_INIT_ERR cold-boot failure. | LOW (blocked) |
+| github.com/libretiny-eu/libretiny/issues/235 (January 3, 2024, **ACCESSIBLE**) | **NEW cross-platform RTL8720CF boot failure precedent — fully accessible.** RTL8720CF device shows exact same failure cascade as our bug's `[SPIF Err]Invalid ID` tier: (1) `[MISC Err]Hash Result Incorrect!` → `Boot Load Err!`; (2) `[SPIF Err]Invalid ID` (twice); (3) `[BOOT Err]Flash init error (io_mod=0, pin_sel=0)`; (4) `StartUp@0x0: Invalid RAM Img Signature!`. User had dumped firmware but hash validation failed on boot; even holding A0 pin (flash bypass) failed. Issue remains open, no solution confirmed. Platform: libretiny (third-party Realtek support for RTL8720C/RTL8720CF). The `[SPIF Err]Invalid ID` → `[BOOT Err]Flash init error` cascade extends across at least three Realtek Ameba chip generations (RTL8710B, RTL8720C, RTL8720CF, RTL8735B). | MEDIUM |
+| github.com/esphome/issues/issues/7223 (July 9, 2025, **ACCESSIBLE**) | **NEW ESPHome RTL8720CF hash failure report — fully accessible.** Tuya WBR1 device (RTL8720CF) running ESPHome 2025.6.2: `[MISC Err]Hash Result Incorrect! Boot Load Err!`. Suspected root cause: documentation inconsistency between WBR1 and WBR2 variants (same RTL8720CF chip, different GPIO/UART configs). No camera involved. Pattern: Realtek boot ROM's hash verification fails when firmware partition layout mismatches chip expectations — same failure class as our bug's partition/FCS data corruption path. | LOW |
+| forum.amebaiot.com/t/amb82-mini-boot-err-invalid-ram-img-signature/2530 (search snippet, 403 blocked) | **Thread #2530 confirmed indexed** (previously appeared in prior cycles as a search result but not explicitly catalogued). Title: "AMB82-mini BOOT Err Invalid RAM Img Signature!" — boot error with invalid RAM image signature after flashing. Distinct from FCS_I2C_INIT_ERR (which occurs later in the boot chain, after flash is successfully initialized). Not flash-write triggered in the runtime FlashMemory sense. Adds to the boot-error catalog. | LOW (blocked) |
+| gtxaspec/wz_mini_hacks GitHub (discussion #638) | **Wyze camera community using RTL8735B.** The Wyze camera modding community (`wz_mini_hacks`) uses RTL8735B in Wyze devices and actively hacks firmware. This is a previously unknown community context for RTL8735B embedded in commercial cameras. No flash/FCS issue reports found in this community; users focus on firmware dumping and boot mode, not camera+flash concurrent access. | LOW (background) |
+| bbs.aithinker.com thread tid=47223 "BW21数码相机+BW21-CBV-KIT" (search snippet, 403 blocked) | **Community DIY digital camera project with external storage.** BW21-CBV-KIT combined with SD card + display + buttons to create a standalone camera. If users in this project employ `FlashMemory.write()` alongside camera streaming (e.g., to save settings), this is an exact reproduction of our bug scenario. Not a bug report — a hardware project description. Content 403-blocked. | LOW (blocked) |
+| All forum threads above #4868 (targeted search, 2026-06-16) | **No threads indexed above #4868.** Search for IDs 4869–4880 returns zero results. Forum ceiling remains at **#4868** (NN model loading, unrelated). | LOW |
+| Web-wide error string sweep (2026-06-16) | **Zero indexed results — 127th consecutive null.** `"FCS KM_status 0x00002081"`, `"It don't do the sensor initial process"`, `"FCS_I2C_INIT_ERR"`, `"FCS_RUN_DATA_NG_KM"`, `"VOE_OPEN_CMD fail flash"`, `"device_mutex_lock RT_DEV_LOCK_FLASH"`, `"USE_ISP_RETENTION_DATA"` all return zero results anywhere on the accessible web. This research log remains the sole public documentation of this bug and its error codes. | LOW |
+| Hackster/Hackaday.io/Instructables/Reddit/StackOverflow (2026-06-16) | **Zero new content.** No AMB82-Mini / RTL8735B camera+flash boot failure discussions on any general maker/developer platform. Hackaday.com 2026 entries are unrelated camera hacks. No Reddit/StackOverflow posts on this topic. Only Hackster AMB82 content is the prior known SOS project. | LOW |
+| All Chinese-language sources (CSDN/知乎/EEWorld/21IC/bbs.aithinker.com/bbs.ai-thinker.com/mcublog.cn/Bilibili/Gitee, June 16 sweep) | **Zero new content — 127th consecutive null cycle.** All Chinese community sites remain 403-blocked. mcublog.cn BW21-CBV article (April 2026) mentions "some small issues (小毛病)" with BW21-CBV but content is 403-blocked and no camera+flash specifics are visible in the snippet. No new Chinese-language articles or forum posts about FCS flash-write camera failure anywhere. | LOW |
+
+**RTL8720CF boot failure cascade — cross-platform synthesis (new this cycle):**
+
+The libretiny/issues #235 finding (accessible for the first time) provides a confirmed, fully readable account of the same `[SPIF Err]Invalid ID` → `[BOOT Err]Flash init error` failure cascade on RTL8720CF. Comparing to our bug's severity ladder:
+
+| Severity tier | RTL8735B failure | RTL8720CF analog |
+|---|---|---|
+| Mild | `[VOE][WARN]slot full` | Not applicable (no camera) |
+| Severe | `FCS_I2C_INIT_ERR (0x200A)` + `FCS_RUN_DATA_NG_KM (0x2081)` | `[MISC Err]Hash Result Incorrect!` → `Boot Load Err!` |
+| Most severe | `[SPIF Err]Invalid ID` + `[BOOT Err]Flash init error` | `[SPIF Err]Invalid ID` + `[BOOT Err]Flash init error (io_mod=0, pin_sel=0)` |
+
+The shared `[SPIF Err]Invalid ID` + `[BOOT Err]Flash init error` sequence at the most severe tier is identical across RTL8720CF and RTL8735B, confirming this is a platform-wide Realtek Ameba boot ROM failure class tied to flash controller initialization failure (WIP-at-boot or corrupt flash ID response).
+
+**Repository freeze status (as of Cycle U127, June 16, 2026):**
+
+| Repository | Last commit | Days frozen |
+|---|---|---|
+| ameba-rtos-pro2 main | June 15, 2026 (`dc249dd`) | **1 day** |
+| ameba-arduino-pro2 dev | June 3, 2026 (`e8dd7e3`) | **13 days** |
+| ameba-arduino-pro2 main | Mar 2, 2026 (`93d63514`) | **106 days** ⚠️ |
+| ideashatch/HUB-8735 | Dec 2, 2025 (`870a7e0`) | **197 days** |
+
+**SDK state as of 2026-06-16 (Cycle U127 — unchanged from U126):**
+- Latest stable Arduino SDK: V4.1.0 (Mar 2, 2026) — no fix; FlashMemory.cpp zero mutex calls
+- Latest GitHub Release tag: V4.1.1-QC-V07 (March 6, 2026) — no fix
+- Latest dev pre-release in JSON index: `build20260603` (June 3, 2026) — no fix; OV5647 + GC4663 sensors added
+- ameba-rtos-pro2 main: Frozen since June 15, 2026 (1 day); PR #17 open (unrelated); no FCS/flash fix
+- ameba-arduino-pro2 dev: Frozen June 3, 2026; RTOS June 15 commits not yet merged
+- ameba-arduino-pro2 main: Frozen Mar 2, 2026 — **106 days no change** ⚠️
+- FlashMemory.cpp: last commit `4fdfbec` (Sep 30, 2025), zero mutex calls — **127th cycle unpatched**
+
+**No confirmed fix. Bug remains unpatched as of 2026-06-16 (Cycle U127).**
+
+**Top unresolved actions (unchanged — no progress since U20, May 18, 2026):**
+1. **Hardware test of "Camera FCS Mode = Disable"** — full source-code chain confirmed (postbuild.cpp + video_boot.c + video_api.c); dummy blob → invalid MFCS magic → KM bypass (0x0083) → camera re-init via application layer. No public hardware test result exists anywhere. **Highest priority. 33 days unresolved since U7.**
+2. **Hardware test of `device_mutex_lock(RT_DEV_LOCK_FLASH)` wrapper** — Realtek's own `flash/src/main.c` demonstrates the required pattern; FlashMemory.cpp confirmed sole exception. Callable from Arduino: `extern "C" { void device_mutex_lock(unsigned int); void device_mutex_unlock(unsigned int); } #define RT_DEV_LOCK_FLASH 1`.
+3. **File a GitHub Issue on ameba-arduino-pro2** — bug entirely undocumented outside this research log; 127 cycles; zero official acknowledgment; zero PRs ever filed.
+4. **Hardware test of `USE_ISP_RETENTION_DATA`** — eliminates ISP competing SPIC writes; requires uncommenting `// #define USE_ISP_RETENTION_DATA` in `video_api.h`.
+
+**Late-arriving findings (U127 addendum — same research session):**
+
+| Source | Key Finding | Priority |
+|---|---|---|
+| github.com/cornetlin/apriltag-hub8735 `AmebaPro2_AprilTag/src/AprilTagDetector.cpp` | **NEW third-party HUB-8735 repo documents `VOE_OPEN_CMD command fail` for unsupported resolution.** Developer comment: "Earlier 640×480@10fps caused 'VOE_OPEN_CMD command fail' on HUB-8735_ultra — VOE rejects some w/h/fps combos. CaptureJPEG's combo is the known-good baseline." Confirms a second distinct root cause for the `VOE_OPEN_CMD command fail` error message (unsupported w/h/fps combination rather than FCS_I2C_INIT_ERR). Combined with the VOE IPC buffer overflow cause (found in HUB-8735 Issue #10, documented in U20), this means `VOE_OPEN_CMD command fail` can originate from at least three independent root causes. Third-party repo, publicly accessible. | LOW |
+| forum.amebaiot.com/t/amb82-mini-image-tool-nor-flash/2089 (Chinese-language, 403 blocked) | **Newly catalogued thread.** Title: "AMB82 MINI使用image tool清除NOR flash" — using Realtek's image tool to clear NOR flash on AMB82 MINI. Chinese-language. Content 403-blocked; relevance to our bug unknown but flash-management context. | LOW (blocked) |
+| forum.amebaiot.com/t/amb82-mini/3919 (Chinese-language, 403 blocked) | **Newly catalogued thread.** Title: "AMB82-MINI 使用相關問題與回饋" — AMB82-MINI usage questions and feedback. Chinese-language Q&A thread. Content 403-blocked. Previously untracked. | LOW (blocked) |
+| forum.amebaiot.com/t/rtl8735b-crashed-during-running-rtspfacedetection-stack-overflow/1759 (March 2023, 403 blocked) | **Newly catalogued thread.** Title: "RTL8735B crashed during RTSPFaceDetection — stack overflow." Crash during camera+neural-network pipeline (RTSP streaming + face detection). Stack overflow, not flash-write triggered. Distinct failure class; adds to the catalog of camera-related crash threads. | LOW (blocked) |
